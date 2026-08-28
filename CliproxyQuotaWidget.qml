@@ -544,6 +544,23 @@ PluginComponent {
                                     cursorShape: Qt.PointingHandCursor
                                     onClicked: root.focusPage(providerTab.index)
                                 }
+
+                                // The taskbar glyph says "something is wrong
+                                // somewhere"; this dot says where — straight on
+                                // the offending provider's tab.
+                                Rectangle {
+                                    visible: providerTab.modelData.problem === true
+                                    width: 9
+                                    height: 9
+                                    radius: 4.5
+                                    color: Theme.warning
+                                    border.width: 1
+                                    border.color: Theme.surfaceContainerHigh
+                                    anchors.top: parent.top
+                                    anchors.right: parent.right
+                                    anchors.topMargin: -1
+                                    anchors.rightMargin: -1
+                                }
                             }
                         }
                     }
