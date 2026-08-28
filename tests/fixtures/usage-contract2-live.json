@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-26T13:28:27Z",
+  "client": {
+    "keyHint": "key-3fa…9c41"
+  },
+  "cache": {
+    "updatedAt": "2026-08-26T13:28:29Z",
+    "stale": false,
+    "ttlMs": 120000
+  },
+  "accounts": [
+    {
+      "provider": "claude",
+      "account": "s***@example.com",
+      "authIndex": "9f80aa11c2d34e56",
+      "label": "s***@example.com",
+      "status": "active",
+      "disabled": false,
+      "unavailable": false,
+      "success": 1178,
+      "failed": 6,
+      "lastRequestAt": "2026-08-26T15:26:43.113150951+02:00",
+      "supported": true,
+      "groups": [
+        {
+          "id": "five-hour",
+          "label": "5h Session",
+          "remainingFraction": 1,
+          "models": [
+            {
+              "id": "five-hour",
+              "displayName": "5h Session",
+              "remainingFraction": 1
+            }
+          ]
+        },
+        {
+          "id": "seven-day",
+          "label": "7d Weekly",
+          "remainingFraction": 0,
+          "resetTime": "2026-08-27T03:00:00.146057+00:00",
+          "models": [
+            {
+              "id": "seven-day",
+              "displayName": "7d Weekly",
+              "remainingFraction": 0,
+              "resetTime": "2026-08-27T03:00:00.146057+00:00"
+            }
+          ]
+        },
+        {
+          "id": "seven-day-fable",
+          "label": "7d Fable",
+          "remainingFraction": 0,
+          "resetTime": "2026-08-27T03:00:00.146339+00:00",
+          "models": [
+            {
+              "id": "seven-day-fable",
+              "displayName": "7d Fable",
+              "remainingFraction": 0,
+              "resetTime": "2026-08-27T03:00:00.146339+00:00"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "provider": "codex",
+      "account": "s***@example.net",
+      "authIndex": "21940b85483ec04d",
+      "label": "s***@example.net",
+      "status": "disabled",
+      "disabled": true,
+      "unavailable": false,
+      "success": 0,
+      "failed": 0,
+      "lastRequestAt": "2026-08-26T09:16:01.012777235+02:00",
+      "supported": true,
+      "groups": [
+        {
+          "id": "primary-window",
+          "label": "30d Window",
+          "remainingFraction": 0,
+          "resetTime": "2026-09-11T06:41:19Z",
+          "models": [
+            {
+              "id": "primary-window",
+              "displayName": "30d Window",
+              "remainingFraction": 0,
+              "resetTime": "2026-09-11T06:41:19Z"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "provider": "github-copilot",
+      "account": "S***",
+      "authIndex": "1ffd93f4da1ea4dc",
+      "label": "S***",
+      "status": "active",
+      "disabled": false,
+      "unavailable": false,
+      "success": 379,
+      "failed": 0,
+      "lastRequestAt": "2026-08-26T13:20:22.420078784+02:00",
+      "supported": true,
+      "error": "upstream returned status 400",
+      "groups": []
+    }
+  ],
+  "unsupportedProviders": []
+}
