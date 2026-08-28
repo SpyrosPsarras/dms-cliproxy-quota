@@ -451,6 +451,74 @@ else
     fail "schema-2 drift: $(jq -r '.drift' <<<"$OUT")"
 fi
 
+echo "=== Test 12: window duration — server field wins, label pattern fills in ==="
+setup
+OUT="$(run_script)"
+# "5h Session" → 18000s, "30d Window" → 2592000s — generic leading pattern, no id knowledge
+if [ "$(jq -r '.providers[0].aggregateGroups[0].windowSeconds' <<<"$OUT")" = "18000" ]; then
+    pass "5h label parses to 18000 seconds"
+else
+    fail "5h windowSeconds: $(jq -r '.providers[0].aggregateGroups[0].windowSeconds' <<<"$OUT")"
+fi
+if [ "$(jq -r '.providers[1].accounts[0].groups[0].windowSeconds' <<<"$OUT")" = "2592000" ]; then
+    pass "30d label parses to 2592000 seconds"
+else
+    fail "30d windowSeconds: $(jq -r '.providers[1].accounts[0].groups[0].windowSeconds' <<<"$OUT")"
+fi
+setup
+export SHIM_BODY_FILE="$FIXTURES/usage-healthy.json"
+OUT="$(run_script)"
+# "Some Window" has no leading duration — pace must be silently unavailable
+if [ "$(jq -r '.providers[0].aggregateGroups[0].windowSeconds' <<<"$OUT")" = "null" ]; then
+    pass "unparsable label yields null windowSeconds"
+else
+    fail "expected null windowSeconds: $(jq -r '.providers[0].aggregateGroups[0].windowSeconds' <<<"$OUT")"
+fi
+setup
+export SHIM_BODY_FILE="$FIXTURES/usage-multi-account.json"
+OUT="$(run_script)"
+# a server-provided windowSeconds field beats any label parse
+if [ "$(jq -r '.providers[0].aggregateGroups[0].windowSeconds' <<<"$OUT")" = "900" ]; then
+    pass "server windowSeconds passes through untouched"
+else
+    fail "server windowSeconds: $(jq -r '.providers[0].aggregateGroups[0].windowSeconds' <<<"$OUT")"
+fi
+
+echo "=== Test 13: requests-per-day activity from local history ==="
+setup
+export SHIM_BODY_FILE="$FIXTURES/usage-multi-account.json"
+HIST="$TMP/cache/cliproxy-quota/history-$(printf '%s' "https://proxy.test" | sha256sum | cut -c1-16).jsonl"
+mkdir -p "$(dirname "$HIST")"
+YD=$(( $(date +%s) - 86400 ))
+# yesterday's last snapshot: acme at 2 requests — today's fixture sums to 12
+printf '{"ts":%s,"providers":[{"provider":"acme","success":2,"failed":0}]}\n' "$YD" > "$HIST"
+OUT="$(run_script)"
+if [ "$(jq -r '.providers[0].activity[-1].requests' <<<"$OUT")" = "10" ]; then
+    pass "today's requests are the delta against yesterday's counter"
+else
+    fail "activity delta: $(jq -c '.providers[0].activity' <<<"$OUT")"
+fi
+if [ "$(wc -l < "$HIST")" = "2" ]; then
+    pass "fetch appended today's snapshot to the history"
+else
+    fail "history lines: $(wc -l < "$HIST")"
+fi
+# counter reset (server restart): yesterday higher than today — never negative
+printf '{"ts":%s,"providers":[{"provider":"acme","success":500,"failed":9}]}\n' "$YD" > "$HIST"
+OUT="$(run_script --force)"
+if [ "$(jq -r '.providers[0].activity[-1].requests' <<<"$OUT")" = "0" ]; then
+    pass "counter reset clamps the daily delta at zero"
+else
+    fail "reset delta: $(jq -c '.providers[0].activity' <<<"$OUT")"
+fi
+setup
+OUT="$(run_script)"
+if [ "$(jq -r '.providers[0].activity | length' <<<"$OUT")" = "0" ]; then
+    pass "first run ever has an empty activity list, never invented numbers"
+else
+    fail "first-run activity: $(jq -c '.providers[0].activity' <<<"$OUT")"
+fi
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1

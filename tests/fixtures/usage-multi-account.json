@@ -36,7 +36,7 @@
       "supported": true,
       "error": null,
       "groups": [
-        { "id": "short-window", "label": "Short", "remainingFraction": 0.8, "resetTime": null, "models": [] },
+        { "id": "short-window", "label": "30m Window", "remainingFraction": 0.8, "resetTime": null, "windowSeconds": 900, "models": [] },
         { "id": "long-window", "label": "Long", "remainingFraction": 0.7, "resetTime": null, "models": [] }
       ]
     },

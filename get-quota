@@ -147,10 +147,65 @@ if ! jq -e '.schemaVersion and (.accounts | type == "array")' "$body_file" >/dev
     emit_bare "http-error" "unexpected payload shape"
 fi
 
-jq -c --arg contractLatest "${contract_latest:-}" --argjson contract "$CONTRACT" '
+# --- Local request history --------------------------------------------------
+
+# The contract carries only cumulative success/failed counters, so daily
+# activity is accumulated here: one snapshot per fetch, per origin, pruned
+# beyond 8 days. Day-over-day deltas of the last counter of each day become
+# the requests-per-day strip; a counter reset (proxy restart) clamps at zero.
+HIST_FILE="$CACHE_DIR/history-$(printf '%s' "$origin" | sha256sum | cut -c1-16).jsonl"
+now_ts=$(date +%s)
+# When the lock cannot be taken, skip this run's append rather than racing a
+# concurrent writer — losing one snapshot to a skip is invisible, losing one
+# to a rewrite race is a corruption path.
+hist_writable=1
+if command -v flock >/dev/null 2>&1; then
+    exec 9>"$HIST_FILE.lock"
+    flock -w 2 9 || hist_writable=0
+fi
+if [ "$hist_writable" = "1" ]; then
+    snapshot=$(jq -c --argjson ts "$now_ts" '{
+        ts: $ts,
+        providers: ([.accounts[] | {provider, success: (.success // 0), failed: (.failed // 0)}]
+            | group_by(.provider)
+            | map({provider: .[0].provider, success: ([.[].success] | add), failed: ([.[].failed] | add)}))
+    }' "$body_file")
+    hist_tmp=$(mktemp "$CACHE_DIR/.hist.XXXXXX")
+    { [ -f "$HIST_FILE" ] && cat "$HIST_FILE"; printf '%s\n' "$snapshot"; } \
+        | jq -c --argjson cutoff $((now_ts - 8 * 86400)) 'select(.ts >= $cutoff)' > "$hist_tmp" \
+        && mv "$hist_tmp" "$HIST_FILE"
+fi
+
+activity=$(jq -s '
+    [ .[] | .ts as $ts | .providers[] | {provider, day: ($ts | strflocaltime("%Y-%m-%d")), ts: $ts, success, failed} ]
+    | group_by(.provider)
+    | map({
+        key: .[0].provider,
+        value: (group_by(.day) | map(max_by(.ts)) | sort_by(.day)
+            | [ range(1; length) as $i | {
+                date: .[$i].day,
+                requests: ([.[$i].success - .[$i - 1].success, 0] | max),
+                failed: ([.[$i].failed - .[$i - 1].failed, 0] | max)
+            } ]
+            | .[-7:])
+    })
+    | from_entries' "$HIST_FILE" 2>/dev/null) || activity="{}"
+
+jq -c --arg contractLatest "${contract_latest:-}" --argjson contract "$CONTRACT" --argjson activity "$activity" '
     def live: (.disabled | not) and (.unavailable | not) and .supported
               and ((.groups // []) | length > 0);
     def bottleneck: [.groups[].remainingFraction] | min;
+    # Window length for pace: a server-provided field wins; otherwise a generic
+    # leading duration in the label ("5h …", "30d …") — a PATTERN, never a
+    # window id. Unparsable labels yield null and pace stays silently off.
+    def window_seconds:
+        .windowSeconds // (
+            ((.label // "") | capture("^(?<n>[0-9]+)\\s*(?<u>[smhdw])"; "i") // null)
+            | if . == null then null
+              else (.n | tonumber) * ({s: 1, m: 60, h: 3600, d: 86400, w: 604800}[.u | ascii_downcase])
+              end
+        );
+    def group_view: {id, label, remainingFraction, resetTime: (.resetTime // null), windowSeconds: window_seconds};
     # A problem is an account that is NOT SERVING: disabled, unavailable, or
     # in a non-active state. An error string on an account that is otherwise
     # serving traffic (e.g. an unreadable quota meter upstream) is degraded
@@ -183,14 +238,15 @@ jq -c --arg contractLatest "${contract_latest:-}" --argjson contract "$CONTRACT"
                 aggregate: (if $win then ($win | bottleneck) else null end),
                 # The winning live account: its groups ARE the aggregate view the
                 # headline renders, bars and reset countdowns included.
-                aggregateGroups: (if $win then [$win.groups[] | {id, label, remainingFraction, resetTime: (.resetTime // null)}] else [] end),
+                aggregateGroups: (if $win then [$win.groups[] | group_view] else [] end),
+                activity: ($activity[$p] // []),
                 problem: ([$doc.accounts[] | select(.provider == $p) | troubled] | any),
                 accounts: [$doc.accounts[] | select(.provider == $p) | {
                     account, label, status, disabled, unavailable, supported,
                     success, failed, lastRequestAt,
                     error: (.error // ""),
                     noQuota: ((.groups // []) | length == 0),
-                    groups: [(.groups // [])[] | {id, label, remainingFraction, resetTime: (.resetTime // null)}]
+                    groups: [(.groups // [])[] | group_view]
                 }]
             })
         )

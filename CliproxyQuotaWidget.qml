@@ -663,6 +663,21 @@ PluginComponent {
                                     id: aggGroupCard
                                     required property var modelData
                                     readonly property real fraction: Math.max(0, Math.min(1, modelData.remainingFraction))
+                                    // Used fraction versus elapsed fraction of the
+                                    // window. NaN (no duration, no reset time, or a
+                                    // window that has not started) keeps pace silent.
+                                    readonly property real paceDelta: {
+                                        var ws = modelData.windowSeconds;
+                                        var rt = modelData.resetTime;
+                                        if (!ws || !rt)
+                                            return NaN;
+                                        var remainMs = new Date(rt).getTime() - root.nowMs;
+                                        if (isNaN(remainMs) || remainMs < 0)
+                                            return NaN;
+                                        var elapsed = 1 - remainMs / (ws * 1000);
+                                        elapsed = Math.max(0, Math.min(1, elapsed));
+                                        return (1 - fraction) - elapsed;
+                                    }
 
                                     width: aggregateBars.width
                                     height: 88
@@ -741,6 +756,20 @@ PluginComponent {
                                                 text: root.formatCountdown(aggGroupCard.modelData.resetTime)
                                                 font.pixelSize: Theme.fontSizeSmall
                                                 color: Theme.surfaceVariantText
+                                            }
+
+                                            StyledText {
+                                                visible: !isNaN(aggGroupCard.paceDelta)
+                                                text: {
+                                                    var pct = Math.round(Math.abs(aggGroupCard.paceDelta) * 100);
+                                                    if (pct < 1)
+                                                        return root.tr("on pace");
+                                                    return pct + "% " + (aggGroupCard.paceDelta > 0 ? root.tr("over pace") : root.tr("under pace"));
+                                                }
+                                                font.pixelSize: Theme.fontSizeSmall
+                                                color: isNaN(aggGroupCard.paceDelta) || Math.round(Math.abs(aggGroupCard.paceDelta) * 100) < 1
+                                                       ? Theme.surfaceVariantText
+                                                       : aggGroupCard.paceDelta > 0 ? Theme.warning : Theme.success
                                             }
                                         }
                                     }
@@ -1023,6 +1052,85 @@ PluginComponent {
                                     Item {
                                         width: 1
                                         height: Theme.spacingXS
+                                    }
+                                }
+                            }
+                        }
+
+                        // --- Daily activity: requests per day, deltas of the
+                        // proxy's counters accumulated locally. Appears once a
+                        // second day of history exists.
+                        StyledText {
+                            visible: activityCard.visible
+                            text: root.tr("Daily Activity")
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.weight: Font.Medium
+                            color: Theme.surfaceVariantText
+                            leftPadding: Theme.spacingM
+                        }
+
+                        StyledRect {
+                            id: activityCard
+                            readonly property var activity: root.pillProvider ? (root.pillProvider.activity || []) : []
+                            readonly property real maxRequests: {
+                                var m = 0;
+                                for (var i = 0; i < activity.length; i++)
+                                    m = Math.max(m, activity[i].requests);
+                                return m;
+                            }
+
+                            visible: activity.length > 0
+                            width: accountsColumn.width - 2 * Theme.spacingM
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            height: 96
+                            radius: Theme.cornerRadius
+                            color: Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
+
+                            Row {
+                                anchors.centerIn: parent
+                                spacing: Theme.spacingM
+
+                                Repeater {
+                                    model: activityCard.activity
+
+                                    delegate: Column {
+                                        id: dayColumn
+                                        required property var modelData
+                                        spacing: 2
+
+                                        StyledText {
+                                            anchors.horizontalCenter: parent.horizontalCenter
+                                            text: dayColumn.modelData.requests
+                                            font.pixelSize: Theme.fontSizeSmall - 2
+                                            color: Theme.surfaceVariantText
+                                        }
+
+                                        Item {
+                                            width: 26
+                                            height: 40
+                                            anchors.horizontalCenter: parent.horizontalCenter
+
+                                            Rectangle {
+                                                anchors.bottom: parent.bottom
+                                                anchors.horizontalCenter: parent.horizontalCenter
+                                                width: 18
+                                                radius: 3
+                                                height: activityCard.maxRequests > 0
+                                                        ? Math.max(3, 40 * dayColumn.modelData.requests / activityCard.maxRequests)
+                                                        : 3
+                                                color: dayColumn.modelData.requests > 0 ? Theme.primary : Theme.surfaceVariant
+                                            }
+                                        }
+
+                                        StyledText {
+                                            anchors.horizontalCenter: parent.horizontalCenter
+                                            text: {
+                                                var d = new Date(dayColumn.modelData.date + "T00:00:00");
+                                                return isNaN(d.getTime()) ? "" : d.toLocaleDateString(Qt.locale(), "ddd");
+                                            }
+                                            font.pixelSize: Theme.fontSizeSmall - 2
+                                            color: Theme.surfaceVariantText
+                                        }
                                     }
                                 }
                             }
