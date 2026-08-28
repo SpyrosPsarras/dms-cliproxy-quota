@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-26T13:28:27Z",
+  "client": { "keyHint": "key-3fa…9c41" },
+  "cache": { "updatedAt": "2026-08-26T13:28:29Z", "stale": false, "ttlMs": 120000 },
+  "accounts": [
+    {
+      "provider": "acme",
+      "account": "a***@example.com",
+      "authIndex": "1111111111111111",
+      "label": "a***@example.com",
+      "status": "active",
+      "disabled": false,
+      "unavailable": false,
+      "success": 5,
+      "failed": 0,
+      "lastRequestAt": "2026-08-26T13:20:00Z",
+      "supported": true,
+      "error": null,
+      "groups": [
+        { "id": "short-window", "label": "Short", "remainingFraction": 0.9, "resetTime": null, "models": [] },
+        { "id": "long-window", "label": "Long", "remainingFraction": 0.2, "resetTime": null, "models": [] }
+      ]
+    },
+    {
+      "provider": "acme",
+      "account": "b***@example.com",
+      "authIndex": "2222222222222222",
+      "label": "b***@example.com",
+      "status": "active",
+      "disabled": false,
+      "unavailable": false,
+      "success": 7,
+      "failed": 1,
+      "lastRequestAt": "2026-08-26T13:25:00Z",
+      "supported": true,
+      "error": null,
+      "groups": [
+        { "id": "short-window", "label": "Short", "remainingFraction": 0.8, "resetTime": null, "models": [] },
+        { "id": "long-window", "label": "Long", "remainingFraction": 0.7, "resetTime": null, "models": [] }
+      ]
+    }
+  ],
+  "unsupportedProviders": []
+}

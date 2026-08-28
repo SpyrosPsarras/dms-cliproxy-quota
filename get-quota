@@ -1,0 +1,150 @@
+#!/usr/bin/env bash
+# get-quota — fetch provider quota from CLIProxyAPI's pi-bridge plugin and print
+# one flat JSON document the widget renders without branching.
+#
+# Owns every decision that can fail: key resolution, endpoint normalization,
+# HTTP, contract negotiation, staleness, aggregation. Requires: curl, jq.
+#
+# Usage: get-quota [--force]
+#   --force   skip the local cache (the popout refresh button)
+#
+# Environment (overridable for tests):
+#   CLIPROXY_QUOTA_PI_CONFIG  pi's config file (default ~/.pi/agent/pi-cliproxyapi/config.json)
+#   XDG_CACHE_HOME            cache root (default ~/.cache)
+set -eu
+
+CONTRACT=2
+ROUTE="/v0/resource/plugins/pi-bridge/usage"
+CACHE_TTL_SECONDS=60
+PI_CONFIG="${CLIPROXY_QUOTA_PI_CONFIG:-$HOME/.pi/agent/pi-cliproxyapi/config.json}"
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/cliproxy-quota"
+CACHE_FILE="$CACHE_DIR/output.json"
+
+FORCE=0
+[ "${1:-}" = "--force" ] && FORCE=1
+
+# Emit a terminal document for states where no usage payload exists.
+emit_bare() { # status, error message
+    jq -cn --arg status "$1" --arg error "$2" \
+        '{status: $status, error: $error, stale: true, providers: []}'
+    exit 0
+}
+
+# --- Local cache -------------------------------------------------------------
+
+if [ "$FORCE" = "0" ] && [ -f "$CACHE_FILE" ]; then
+    now=$(date +%s)
+    mtime=$(stat -c %Y "$CACHE_FILE" 2>/dev/null || stat -f %m "$CACHE_FILE")
+    if [ $((now - mtime)) -lt "$CACHE_TTL_SECONDS" ]; then
+        cat "$CACHE_FILE"
+        exit 0
+    fi
+fi
+
+# --- Configuration -----------------------------------------------------------
+
+# Trim leading/trailing whitespace, preserving internal whitespace.
+trim() {
+    printf '%s' "$1" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//'
+}
+
+# Resolve a config value the way pi does: "!cmd" runs a command, "$VAR" reads
+# the environment, anything else is a literal. The raw value and any command
+# output are trimmed, matching pi's resolveConfigValue.
+resolve_value() {
+    local raw
+    raw=$(trim "$1")
+    case "$raw" in
+        '!'*) trim "$(sh -c "${raw#!}" 2>/dev/null || true)" ;;
+        '$'*) printenv "${raw#$}" || true ;;
+        *)    printf '%s' "$raw" ;;
+    esac
+}
+
+endpoint=""
+key=""
+if [ -f "$PI_CONFIG" ]; then
+    endpoint=$(jq -r '.proxy.endpoint // empty' "$PI_CONFIG" 2>/dev/null || true)
+    raw_key=$(jq -r '.proxy.apiKey // empty' "$PI_CONFIG" 2>/dev/null || true)
+    [ -n "$raw_key" ] && key=$(resolve_value "$raw_key")
+fi
+
+[ -n "$endpoint" ] || emit_bare "no-endpoint" "no endpoint configured"
+[ -n "$key" ] || emit_bare "no-key" "key unavailable"
+
+# Strip whatever path the user stored (pi keeps the /v1 OpenAI base) to origin.
+# Scheme is case-insensitive; authority ends at /, ? or #.
+origin=$(printf '%s' "$endpoint" | sed -E 's#^([Hh][Tt][Tt][Pp][Ss]?://[^/?\#]+).*#\1#')
+url="${origin}${ROUTE}"
+
+# --- Fetch -------------------------------------------------------------------
+
+mkdir -p "$CACHE_DIR"
+body_file=$(mktemp)
+header_file=$(mktemp)
+# Unique per invocation and on the cache's filesystem, so concurrent runs
+# (several widget instances, a manual refresh racing the timer) each write
+# their own file and the final rename stays atomic.
+out_file=$(mktemp "$CACHE_DIR/.out.XXXXXX")
+trap 'rm -f "$body_file" "$header_file" "$out_file"' EXIT
+
+http_code=$(curl -sS -m 15 \
+    -H "Authorization: Bearer $key" \
+    -H "X-Pi-Contract: $CONTRACT" \
+    -D "$header_file" -o "$body_file" -w "%{http_code}" \
+    "$url" 2>/dev/null) || emit_bare "unreachable" "proxy unreachable"
+
+case "$http_code" in
+    200) : ;;
+    404) emit_bare "no-plugin" "server has no quota plugin (pi-bridge)" ;;
+    *)   emit_bare "http-error" "proxy returned HTTP $http_code" ;;
+esac
+
+contract_latest=$(tr -d '\r' < "$header_file" \
+    | awk -F': ' 'tolower($1) == "x-pi-contract-latest" {print $2}' | tail -1)
+
+# --- Normalize + aggregate ---------------------------------------------------
+
+# Group accounts by provider preserving server order. Within each provider:
+# aggregate = the worst group of each live account, best across live accounts —
+# the proxy routes the next request to the account with the most headroom.
+if ! jq -e '.schemaVersion and (.accounts | type == "array")' "$body_file" >/dev/null 2>&1; then
+    emit_bare "http-error" "unexpected payload shape"
+fi
+
+jq -c --arg contractLatest "${contract_latest:-}" '
+    def live: (.disabled | not) and (.unavailable | not) and .supported
+              and ((.groups // []) | length > 0);
+    def bottleneck: [.groups[].remainingFraction] | min;
+    . as $doc |
+    {
+        status: "ok",
+        error: "",
+        stale: (.cache.stale // false),
+        updatedAt: (.cache.updatedAt // .generatedAt // null),
+        generatedAt: (.generatedAt // null),
+        payloadSchema: .schemaVersion,
+        contractLatest: (if $contractLatest == "" then null else ($contractLatest | tonumber) end),
+        unsupportedProviders: (.unsupportedProviders // []),
+        providers: (
+            ($doc.accounts | map(.provider)
+             | reduce .[] as $p ([]; if index($p) then . else . + [$p] end))
+            | map(. as $p | {
+                provider: $p,
+                aggregate: ([$doc.accounts[] | select(.provider == $p) | select(live) | bottleneck] | max),
+                problem: ([$doc.accounts[] | select(.provider == $p)
+                           | .disabled or .unavailable or ((.error // "") != "")] | any),
+                accounts: [$doc.accounts[] | select(.provider == $p) | {
+                    account, label, status, disabled, unavailable, supported,
+                    success, failed, lastRequestAt,
+                    error: (.error // ""),
+                    noQuota: ((.groups // []) | length == 0),
+                    groups: [(.groups // [])[] | {id, label, remainingFraction, resetTime: (.resetTime // null)}]
+                }]
+            })
+        )
+    }
+' "$body_file" > "$out_file" || emit_bare "http-error" "unexpected payload shape"
+
+cat "$out_file"
+mv "$out_file" "$CACHE_FILE"

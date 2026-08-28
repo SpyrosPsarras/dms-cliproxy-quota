@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Test shim standing in for curl. Serves $SHIM_BODY_FILE with $SHIM_STATUS,
+# records every invocation so tests can assert on URL, headers and call count.
+set -eu
+
+: "${SHIM_DIR:?SHIM_DIR must be set}"
+echo "$*" >> "$SHIM_DIR/calls.log"
+
+status="${SHIM_STATUS:-200}"
+out_file=""
+header_file=""
+write_out=""
+args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do
+    case "${args[i]}" in
+        -o) out_file="${args[i+1]}" ;;
+        -D) header_file="${args[i+1]}" ;;
+        -w) write_out="${args[i+1]}" ;;
+    esac
+done
+
+# A faithful stand-in refuses invocations the real script must never make:
+# without -D/-o the script cannot read headers or body, and without
+# -w %{http_code} it cannot see the status this shim prints.
+if [ -z "$out_file" ] || [ -z "$header_file" ] || [ "$write_out" != "%{http_code}" ]; then
+    echo "shim: missing or malformed -D/-o/-w usage: $*" >&2
+    exit 64
+fi
+
+if [ -n "$header_file" ]; then
+    if [ -n "${SHIM_HEADERS_FILE:-}" ]; then
+        cat "$SHIM_HEADERS_FILE" > "$header_file"
+    else
+        printf 'HTTP/2 %s\r\nx-pi-contract: 2\r\nx-pi-contract-latest: 2\r\n\r\n' "$status" > "$header_file"
+    fi
+fi
+
+if [ -n "$out_file" ] && [ "$status" = "200" ]; then
+    cat "${SHIM_BODY_FILE:?SHIM_BODY_FILE must be set}" > "$out_file"
+fi
+
+if [ "${SHIM_FAIL:-0}" = "1" ]; then
+    exit 7  # curl: failed to connect
+fi
+printf '%s' "$status"
