@@ -2,13 +2,21 @@
   "id": "cliproxyQuota",
   "name": "CLIProxyAPI Quota",
   "description": "Provider quota and account health from CLIProxyAPI (requires the pi-bridge plugin on the server)",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": "Spyros Psarras",
   "icon": "data_usage",
   "type": "widget",
-  "capabilities": ["dankbar-widget"],
+  "capabilities": [
+    "dankbar-widget"
+  ],
   "component": "./CliproxyQuotaWidget.qml",
   "settings": "./CliproxyQuotaSettings.qml",
-  "requires": ["jq", "curl"],
-  "permissions": ["settings_read", "settings_write"]
+  "requires": [
+    "jq",
+    "curl"
+  ],
+  "permissions": [
+    "settings_read",
+    "settings_write"
+  ]
 }
