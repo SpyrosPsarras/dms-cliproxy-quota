@@ -47,6 +47,14 @@ PluginSettings {
         placeholder: ""
     }
 
+    StringSetting {
+        settingKey: "untrackedProviders"
+        label: "Untracked Providers"
+        description: "Comma-separated provider names whose problems stay off the taskbar warning. Toggled from the popout's bell button too. Every provider always stays visible in the popout."
+        defaultValue: ""
+        placeholder: "github-copilot"
+    }
+
     SliderSetting {
         settingKey: "refreshInterval"
         label: "Refresh Interval"

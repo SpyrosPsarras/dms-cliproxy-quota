@@ -108,8 +108,13 @@ serving is degraded telemetry, shown in the detail, never a warning. Dimmed with
 when data is stale or the fetch failed — cached numbers are never presented as live.
 
 **Focus persistence.** The focused provider is stored in plugin settings; if it
-disappears from the payload, fall back to the first page. There is no mute list —
-paging past a provider is free.
+disappears from the payload, fall back to the first page.
+
+**Per-provider opt-out.** A provider can be **untracked**: its problems stay off
+the taskbar triangle and tab dot — the bell button on its page, mirrored by an
+editable settings field. Its page always stays in the carousel; the widget
+silences alarms, never hides data. Persisted as a comma-separated list in plugin
+settings; the fetch script knows nothing about it.
 
 **Settings.** Source (pi's config, the default, or manual endpoint + key), refresh
 interval.

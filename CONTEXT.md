@@ -60,6 +60,12 @@ The `schemaVersion` field inside the response body. Moves independently of the
 contract version; contract 2 currently ships payload schema 1.
 _Avoid_: contract
 
+**Untracked provider**:
+A provider whose troubled accounts stay off the taskbar warning, by the user's
+choice. Always still shown in the carousel — the widget silences alarms, never
+hides data.
+_Avoid_: muted, ignored, hidden
+
 **Stale**:
 Data the plugin cannot vouch for as current: the server marked it stale, or the
 fetch failed. Stale numbers are dimmed and never presented as live.

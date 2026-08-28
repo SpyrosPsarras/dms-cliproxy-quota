@@ -34,26 +34,59 @@ PluginComponent {
     // The whole flat document get-quota prints. null until the first run lands.
     property var quota: null
 
+    // Per-provider opt-out, persisted as a comma-separated list in the plugin
+    // settings. An untracked provider's problems stay off the taskbar triangle
+    // and tab dot; its page always stays in the carousel — the widget never
+    // hides data, it only silences alarms.
+    function parseList(raw) {
+        // Deduplicated: a hand-edited "acme, acme" must not need two bell
+        // clicks to re-enable tracking.
+        var seen = {};
+        return String(raw || "").split(",").map(s => s.trim()).filter(s => {
+            if (s === "" || seen[s])
+                return false;
+            seen[s] = true;
+            return true;
+        });
+    }
+    readonly property var untrackedProviders: parseList(pluginData.untrackedProviders)
+    function isUntracked(provider) {
+        return untrackedProviders.indexOf(provider) !== -1;
+    }
+    function toggleTracking(provider) {
+        var list = untrackedProviders.slice();
+        var i = list.indexOf(provider);
+        if (i === -1)
+            list.push(provider);
+        else
+            list.splice(i, 1);
+        pluginService?.savePluginData("cliproxyQuota", "untrackedProviders", list.join(", "));
+    }
+
+    // Every provider the server reports, always.
+    readonly property var visibleProviders: quota && quota.providers ? quota.providers : []
+
     // The carousel page currently selected. It alone drives the pill's ring,
     // and it survives restarts through the plugin settings.
     property string focusedProvider: pluginData.focusedProvider || ""
     // Index of the focused provider, falling back to the first page when the
     // persisted provider is absent from the payload.
     readonly property int focusedIndex: {
-        if (!quota || !quota.providers || quota.providers.length === 0)
+        if (visibleProviders.length === 0)
             return -1;
-        for (var i = 0; i < quota.providers.length; i++) {
-            if (quota.providers[i].provider === focusedProvider)
+        for (var i = 0; i < visibleProviders.length; i++) {
+            if (visibleProviders[i].provider === focusedProvider)
                 return i;
         }
         return 0;
     }
-    readonly property var pillProvider: focusedIndex >= 0 ? quota.providers[focusedIndex] : null
+    readonly property var pillProvider: focusedIndex >= 0 ? visibleProviders[focusedIndex] : null
     // Remaining fraction, or -1 when there is nothing trustworthy to show.
     readonly property real remaining: pillProvider && pillProvider.aggregate !== null ? pillProvider.aggregate : -1
     readonly property bool dataLive: quota !== null && quota.status === "ok" && quota.stale !== true
-    // A problem on ANY provider reaches the taskbar, focused page or not.
-    readonly property bool anyProblem: quota !== null && quota.anyProblem === true
+    // A problem on any provider the user still tracks reaches the taskbar,
+    // focused page or not. Untracked providers stay silent.
+    readonly property bool anyProblem: visibleProviders.some(p => p.problem === true && !isUntracked(p.provider))
     // The server offers a newer contract, or sent a payload schema this widget
     // was not written against.
     readonly property bool drift: quota !== null && quota.drift === true
@@ -62,11 +95,11 @@ PluginComponent {
     property double nowMs: Date.now()
 
     function focusPage(index) {
-        if (!quota || !quota.providers || quota.providers.length === 0)
+        if (visibleProviders.length === 0)
             return;
-        var n = quota.providers.length;
+        var n = visibleProviders.length;
         var next = ((index % n) + n) % n;
-        focusedProvider = quota.providers[next].provider;
+        focusedProvider = visibleProviders[next].provider;
         pluginService?.savePluginData("cliproxyQuota", "focusedProvider", focusedProvider);
     }
 
@@ -467,7 +500,7 @@ PluginComponent {
                         spacing: Theme.spacingS
 
                         Repeater {
-                            model: root.quota ? (root.quota.providers || []) : []
+                            model: root.visibleProviders
 
                             delegate: StyledRect {
                                 id: providerTab
@@ -549,7 +582,7 @@ PluginComponent {
                                 // somewhere"; this dot says where — straight on
                                 // the offending provider's tab.
                                 Rectangle {
-                                    visible: providerTab.modelData.problem === true
+                                    visible: providerTab.modelData.problem === true && !root.isUntracked(providerTab.modelData.provider)
                                     width: 9
                                     height: 9
                                     radius: 4.5
@@ -714,13 +747,38 @@ PluginComponent {
                                 }
                             }
 
+                        }
+
+                        // Accounts header with the focused provider's opt-out:
+                        // the bell keeps or removes it from the taskbar triangle.
+                        Item {
+                            width: accountsColumn.width - 2 * Theme.spacingM
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            height: 32
+                            visible: root.focusedIndex >= 0
+
                             StyledText {
-                                visible: root.pillProvider !== null && (root.pillProvider.aggregateGroups || []).length > 0
+                                anchors.left: parent.left
+                                anchors.verticalCenter: parent.verticalCenter
                                 text: root.tr("Accounts")
                                 font.pixelSize: Theme.fontSizeSmall
                                 font.weight: Font.Medium
                                 color: Theme.surfaceVariantText
-                                topPadding: Theme.spacingXS
+                            }
+
+                            Row {
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                spacing: Theme.spacingXS
+
+                                DankActionButton {
+                                    buttonSize: 26
+                                    iconName: root.pillProvider && root.isUntracked(root.pillProvider.provider) ? "notifications_off" : "notifications"
+                                    iconColor: root.pillProvider && root.isUntracked(root.pillProvider.provider) ? Theme.surfaceVariantText : Theme.surfaceText
+                                    tooltipText: root.tr("Warnings on the taskbar")
+                                    onClicked: if (root.pillProvider) root.toggleTracking(root.pillProvider.provider)
+                                }
+
                             }
                         }
 
