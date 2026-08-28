@@ -111,4 +111,6 @@ guard for the one silent bug this design fears most: `remainingFraction` is
 ## License
 
 MIT — see [LICENSE](LICENSE). Test harness layout descends from
-[titeya/dms-claudecode](https://github.com/titeya/dms-claudecode).
+[titeya/dms-claudecode](https://github.com/titeya/dms-claudecode). Provider
+logo assets carry their own notices — see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

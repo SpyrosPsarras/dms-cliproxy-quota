@@ -4,6 +4,8 @@
 // fall back to English, missing keys fall back to the key itself.
 var strings = {
     "Quota": { fr: "Quota", es: "Cuota" },
+    "remaining": { fr: "restant", es: "restante" },
+    "Accounts": { fr: "Comptes", es: "Cuentas" },
     "no data": { fr: "aucune donnée", es: "sin datos" },
     "no quota reported": { fr: "aucun quota signalé", es: "sin cuota reportada" },
     "updated": { fr: "mis à jour", es: "actualizado" },

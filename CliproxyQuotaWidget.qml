@@ -73,6 +73,12 @@ PluginComponent {
     // Icon lookup is the one place a provider name may appear in this source
     // (see tests/test-qml-syntax.sh); every other line treats providers as data.
     // An unknown provider gets the generic icon, never dropped.
+    // Brand logo asset for a provider's icon, or "" for the DankIcon fallback.
+    function providerIconSource(name) {
+        var iconAssets = { "claude": 1, "codex": 1, "github-copilot": 1 };
+        return iconAssets[name] ? Qt.resolvedUrl("assets/" + name + ".svg") : "";
+    }
+
     function providerIcon(name) {
         var icons = {};
         icons["claude"] = "neurology";
@@ -343,7 +349,7 @@ PluginComponent {
     }
 
     popoutWidth: 420
-    popoutHeight: 540
+    popoutHeight: 620
 
     popoutContent: Component {
         FocusScope {
@@ -443,132 +449,100 @@ PluginComponent {
                     }
                 }
 
-                // --- Carousel navigation: ‹ provider headline › ---
+                // --- Provider tabs: one per provider in server order. The
+                // focused tab expands with the provider's name and aggregate;
+                // ←/→ still page, clicking a tab jumps. Replaces the arrows —
+                // every provider is visible at a glance, like its peers do it.
                 Item {
+                    id: navTabs
                     width: parent.width
-                    height: 48
+                    height: 44
                     visible: root.focusedIndex >= 0
                     // The headline is a number too: dim it with the rest the
                     // moment the data stops being live.
                     opacity: root.dataLive ? 1 : 0.6
 
-                    DankActionButton {
-                        id: leftArrow
-                        anchors.left: parent.left
-                        anchors.leftMargin: Theme.spacingS
-                        anchors.verticalCenter: parent.verticalCenter
-                        iconName: "chevron_left"
-                        buttonSize: 36
-                        onClicked: root.focusPage(root.focusedIndex - 1)
-                    }
-
                     Row {
                         anchors.centerIn: parent
                         spacing: Theme.spacingS
 
-                        DankIcon {
-                            name: root.providerIcon(root.pillProvider ? root.pillProvider.provider : "")
-                            size: 22
-                            color: Theme.surfaceText
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
+                        Repeater {
+                            model: root.quota ? (root.quota.providers || []) : []
 
-                        StyledText {
-                            text: root.pillProvider ? root.pillProvider.provider : ""
-                            font.pixelSize: Theme.fontSizeLarge
-                            font.weight: Font.Medium
-                            color: Theme.surfaceText
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
+                            delegate: StyledRect {
+                                id: providerTab
+                                required property var modelData
+                                required property int index
+                                readonly property bool focused: index === root.focusedIndex
 
-                        StyledText {
-                            text: (root.remaining >= 0 ? Math.round(root.remaining * 100) + "%" : "\u2014")
-                                  + (root.dataLive ? "" : "?")
-                            font.pixelSize: Theme.fontSizeLarge
-                            font.weight: Font.Medium
-                            color: root.dataLive && root.remaining >= 0 ? root.ringColor(root.remaining) : Theme.surfaceVariantText
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
-                    }
+                                height: 36
+                                width: tabContent.width + 2 * Theme.spacingM
+                                radius: height / 2
+                                color: focused ? Theme.withAlpha(Theme.primary, 0.16) : Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
+                                border.width: 1
+                                border.color: focused ? Theme.withAlpha(Theme.primary, 0.45) : Theme.outlineLight
 
-                    DankActionButton {
-                        id: rightArrow
-                        anchors.right: parent.right
-                        anchors.rightMargin: Theme.spacingS
-                        anchors.verticalCenter: parent.verticalCenter
-                        iconName: "chevron_right"
-                        buttonSize: 36
-                        onClicked: root.focusPage(root.focusedIndex + 1)
-                    }
-
-                    StyledText {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        anchors.bottom: parent.bottom
-                        text: root.quota && root.quota.providers ? (root.focusedIndex + 1) + "/" + root.quota.providers.length : ""
-                        font.pixelSize: Theme.fontSizeSmall
-                        color: Theme.surfaceVariantText
-                    }
-                }
-
-                // --- Aggregate view: the winning account's groups, one bar
-                // each with its reset countdown — the page's headline detail.
-                Column {
-                    id: aggregateBars
-                    width: parent.width - 2 * Theme.spacingM
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    spacing: Theme.spacingXS
-                    visible: root.focusedIndex >= 0
-                    opacity: root.dataLive ? 1 : 0.6
-
-                    Repeater {
-                        model: root.pillProvider ? (root.pillProvider.aggregateGroups || []) : []
-
-                        delegate: Column {
-                            id: aggGroupRow
-                            required property var modelData
-                            width: aggregateBars.width
-                            spacing: 2
-
-                            Item {
-                                width: parent.width
-                                height: aggGroupLabel.height
-
-                                StyledText {
-                                    id: aggGroupLabel
-                                    anchors.left: parent.left
-                                    text: aggGroupRow.modelData.label || aggGroupRow.modelData.id
-                                    font.pixelSize: Theme.fontSizeSmall
-                                    color: Theme.surfaceText
+                                Behavior on width {
+                                    NumberAnimation {
+                                        duration: Theme.shortDuration
+                                        easing.type: Easing.OutCubic
+                                    }
                                 }
 
-                                StyledText {
-                                    anchors.right: aggGroupPct.left
-                                    anchors.rightMargin: Theme.spacingS
-                                    text: root.formatCountdown(aggGroupRow.modelData.resetTime)
-                                    font.pixelSize: Theme.fontSizeSmall
-                                    color: Theme.surfaceVariantText
+                                Row {
+                                    id: tabContent
+                                    anchors.centerIn: parent
+                                    spacing: Theme.spacingXS
+
+                                    Item {
+                                        width: 20
+                                        height: 20
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        opacity: providerTab.focused ? 1 : 0.55
+
+                                        Image {
+                                            anchors.fill: parent
+                                            visible: root.providerIconSource(providerTab.modelData.provider) !== ""
+                                            source: root.providerIconSource(providerTab.modelData.provider)
+                                            sourceSize.width: 40
+                                            sourceSize.height: 40
+                                            fillMode: Image.PreserveAspectFit
+                                            asynchronous: true
+                                        }
+
+                                        DankIcon {
+                                            anchors.centerIn: parent
+                                            visible: root.providerIconSource(providerTab.modelData.provider) === ""
+                                            name: root.providerIcon(providerTab.modelData.provider)
+                                            size: 18
+                                            color: providerTab.focused ? Theme.primary : Theme.surfaceVariantText
+                                        }
+                                    }
+
+                                    StyledText {
+                                        visible: providerTab.focused
+                                        text: providerTab.modelData.provider
+                                        font.pixelSize: Theme.fontSizeMedium
+                                        font.weight: Font.Medium
+                                        color: Theme.surfaceText
+                                        anchors.verticalCenter: parent.verticalCenter
+                                    }
+
+                                    StyledText {
+                                        visible: providerTab.focused
+                                        text: (providerTab.modelData.aggregate !== null ? Math.round(providerTab.modelData.aggregate * 100) + "%" : "\u2014")
+                                              + (root.dataLive ? "" : "?")
+                                        font.pixelSize: Theme.fontSizeMedium
+                                        font.weight: Font.Medium
+                                        color: root.dataLive && providerTab.modelData.aggregate !== null ? root.ringColor(providerTab.modelData.aggregate) : Theme.surfaceVariantText
+                                        anchors.verticalCenter: parent.verticalCenter
+                                    }
                                 }
 
-                                StyledText {
-                                    id: aggGroupPct
-                                    anchors.right: parent.right
-                                    text: Math.round(aggGroupRow.modelData.remainingFraction * 100) + "%"
-                                    font.pixelSize: Theme.fontSizeSmall
-                                    color: root.ringColor(aggGroupRow.modelData.remainingFraction)
-                                }
-                            }
-
-                            Rectangle {
-                                width: parent.width
-                                height: 6
-                                radius: 3
-                                color: Theme.surfaceVariant
-
-                                Rectangle {
-                                    width: parent.width * Math.max(0, Math.min(1, aggGroupRow.modelData.remainingFraction))
-                                    height: parent.height
-                                    radius: parent.radius
-                                    color: root.ringColor(aggGroupRow.modelData.remainingFraction)
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: root.focusPage(providerTab.index)
                                 }
                             }
                         }
@@ -603,12 +577,15 @@ PluginComponent {
                     color: Theme.surfaceVariantText
                 }
 
-                // --- Focused provider page: expandable account cards ---
+                // --- Focused provider page: aggregate group cards, then the
+                // expandable account cards, in ONE scroll area — the server may
+                // report any number of groups, and every account must remain
+                // reachable below them.
                 DankFlickable {
                     width: parent.width
-                    height: root.popoutHeight - 40 - 48 - aggregateBars.height
+                    height: Math.max(140, root.popoutHeight - 40 - navTabs.height
                             - (unsupportedNote.visible ? unsupportedNote.height + Theme.spacingS : 0)
-                            - 4 * Theme.spacingS
+                            - 3 * Theme.spacingS)
                     contentHeight: accountsColumn.height
                     clip: true
                     // Everything below reflects the fetched document; dim it the
@@ -619,6 +596,116 @@ PluginComponent {
                         id: accountsColumn
                         width: parent.width
                         spacing: Theme.spacingS
+
+                        // Aggregate view: the winning account's groups, one card
+                        // each with a large remaining-ring.
+                        Column {
+                            id: aggregateBars
+                            width: accountsColumn.width - 2 * Theme.spacingM
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            spacing: Theme.spacingS
+                            visible: root.focusedIndex >= 0
+
+                            Repeater {
+                                model: root.pillProvider ? (root.pillProvider.aggregateGroups || []) : []
+
+                                delegate: StyledRect {
+                                    id: aggGroupCard
+                                    required property var modelData
+                                    readonly property real fraction: Math.max(0, Math.min(1, modelData.remainingFraction))
+
+                                    width: aggregateBars.width
+                                    height: 88
+                                    radius: Theme.cornerRadius
+                                    color: Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
+
+                                    Row {
+                                        anchors.left: parent.left
+                                        anchors.leftMargin: Theme.spacingM
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        spacing: Theme.spacingL
+
+                                        Item {
+                                            width: 64
+                                            height: 64
+                                            anchors.verticalCenter: parent.verticalCenter
+
+                                            Canvas {
+                                                anchors.fill: parent
+                                                renderStrategy: Canvas.Cooperative
+
+                                                property real fraction: aggGroupCard.fraction
+                                                onFractionChanged: requestPaint()
+
+                                                onPaint: {
+                                                    var ctx = getContext("2d");
+                                                    ctx.reset();
+                                                    var cx = width / 2, cy = height / 2, r = width * 0.42, lw = width * 0.09;
+
+                                                    ctx.beginPath();
+                                                    ctx.arc(cx, cy, r, 0, 2 * Math.PI);
+                                                    ctx.lineWidth = lw;
+                                                    ctx.strokeStyle = Theme.surfaceVariant;
+                                                    ctx.stroke();
+
+                                                    // The ring fills with what REMAINS.
+                                                    if (fraction > 0) {
+                                                        ctx.beginPath();
+                                                        ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + 2 * Math.PI * fraction);
+                                                        ctx.lineWidth = lw;
+                                                        ctx.strokeStyle = root.ringColor(fraction);
+                                                        ctx.lineCap = "round";
+                                                        ctx.stroke();
+                                                    }
+                                                }
+                                            }
+
+                                            StyledText {
+                                                anchors.centerIn: parent
+                                                text: Math.round(aggGroupCard.fraction * 100) + "%"
+                                                font.pixelSize: Theme.fontSizeMedium
+                                                font.weight: Font.DemiBold
+                                                color: Theme.surfaceText
+                                            }
+                                        }
+
+                                        Column {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            spacing: 2
+
+                                            StyledText {
+                                                text: aggGroupCard.modelData.label || aggGroupCard.modelData.id
+                                                font.pixelSize: Theme.fontSizeMedium
+                                                font.weight: Font.Medium
+                                                color: Theme.surfaceText
+                                            }
+
+                                            StyledText {
+                                                text: Math.round(aggGroupCard.fraction * 100) + "% " + root.tr("remaining")
+                                                font.pixelSize: Theme.fontSizeSmall
+                                                color: root.ringColor(aggGroupCard.fraction)
+                                            }
+
+                                            StyledText {
+                                                visible: text !== ""
+                                                text: root.formatCountdown(aggGroupCard.modelData.resetTime)
+                                                font.pixelSize: Theme.fontSizeSmall
+                                                color: Theme.surfaceVariantText
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            StyledText {
+                                visible: root.pillProvider !== null && (root.pillProvider.aggregateGroups || []).length > 0
+                                text: root.tr("Accounts")
+                                font.pixelSize: Theme.fontSizeSmall
+                                font.weight: Font.Medium
+                                color: Theme.surfaceVariantText
+                                topPadding: Theme.spacingXS
+                            }
+                        }
 
                         Repeater {
                             model: root.pillProvider ? root.pillProvider.accounts : []
