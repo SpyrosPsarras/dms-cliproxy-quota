@@ -2,7 +2,7 @@
   "id": "cliproxyQuota",
   "name": "CLIProxyAPI Quota",
   "description": "Provider quota and account health from CLIProxyAPI (requires the pi-bridge plugin on the server)",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "author": "Spyros Psarras",
   "icon": "data_usage",
   "type": "widget",
