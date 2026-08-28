@@ -331,10 +331,10 @@ fi
 
 echo "=== Test 7: health flags — anyProblem across providers ==="
 setup
-# live fixture: codex disabled, copilot erroring — a problem on ANY provider
+# live fixture: codex disabled — a not-serving account on ANY provider
 OUT="$(run_script)"
 if [ "$(jq -r '.anyProblem' <<<"$OUT")" = "true" ]; then
-    pass "disabled or erroring account anywhere raises anyProblem"
+    pass "not-serving account anywhere raises anyProblem"
 else
     fail "anyProblem: $(jq -r '.anyProblem' <<<"$OUT")"
 fi
@@ -350,6 +350,27 @@ if [ "$(jq -r '.anyProblem' <<<"$OUT")" = "false" ]; then
     pass "healthy accounts leave anyProblem false"
 else
     fail "healthy anyProblem: $(jq -r '.anyProblem' <<<"$OUT")"
+fi
+
+echo "=== Test 7b: serving state decides problem, not the error string ==="
+setup
+OUT="$(run_script)"
+# copilot serves traffic (status active) with an unreadable quota meter —
+# degraded telemetry, not a degraded provider
+if [ "$(jq -r '.providers[] | select(.provider == "github-copilot") | .problem' <<<"$OUT")" = "false" ]; then
+    pass "active account with an error string is not a problem"
+else
+    fail "telemetry error flagged as problem"
+fi
+setup
+export SHIM_BODY_FILE="$FIXTURES/usage-stale.json"
+OUT="$(run_script)"
+# beta is status:error with no error string — not serving IS the problem
+if [ "$(jq -r '.providers[] | select(.provider == "beta") | .problem' <<<"$OUT")" = "true" ] \
+   && [ "$(jq -r '.anyProblem' <<<"$OUT")" = "true" ]; then
+    pass "non-active status raises the problem flag"
+else
+    fail "status:error account not flagged: $(jq -c '.providers' <<<"$OUT")"
 fi
 
 echo "=== Test 8: 404 — the bridge requirement, stated exactly ==="
@@ -399,10 +420,10 @@ else
     fail "stale fixture: status=$(jq -r '.status' <<<"$OUT") stale=$(jq -r '.stale' <<<"$OUT")"
 fi
 # stale numbers stay available for a dimmed rendering — they are never dropped
-if [ "$(jq -r '.providers[0].aggregate' <<<"$OUT")" = "1" ]; then
+if [ "$(jq -r '.providers[] | select(.provider == "acme") | .aggregate' <<<"$OUT")" = "1" ]; then
     pass "stale payload still carries its numbers"
 else
-    fail "stale aggregate: $(jq -r '.providers[0].aggregate' <<<"$OUT")"
+    fail "stale aggregate: $(jq -r '.providers[] | select(.provider == \"acme\") | .aggregate' <<<"$OUT")"
 fi
 
 echo "=== Test 11: drift — newer contract echoed, foreign payload schema ==="

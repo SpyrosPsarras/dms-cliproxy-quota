@@ -27,9 +27,12 @@ freedesktop Secret Service vault.
 - **Taskbar pill** — a ring filled with what *remains* of the focused
   provider's quota: the worst group within each live account, then the best
   across the provider's live accounts — the account your proxy would route to
-  next. A warning glyph when any provider has a disabled, unavailable or
-  erroring account, on any page (an error on an account the bridge marks
-  unsupported is informational and does not raise it). Dimmed with `?` the
+  next. A warning glyph when any provider has an account that is not serving
+  — disabled, unavailable, or (when supported) in a non-active state — on any
+  page. An error
+  string on an account that is otherwise serving traffic (an unreadable quota
+  meter upstream, say) is degraded telemetry: shown in the account detail,
+  never a warning. Dimmed with `?` the
   moment the data stops being live: old numbers are never dressed up as
   current.
 - **Popout carousel** — one page per provider, arrows or ←/→ to navigate.

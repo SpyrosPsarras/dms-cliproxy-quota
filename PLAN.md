@@ -102,7 +102,9 @@ order is the server's order. Each page:
 
 **Taskbar pill.** Ring = the focused provider's aggregate. If the focused provider has
 no groups, a glyph instead of a ring. Warning glyph when **any** provider (not just
-the focused one) has a `disabled`/`unavailable` account or an `error`. Dimmed with `?`
+the focused one) has a troubled account — `disabled`, `unavailable`, or (when
+supported) in a non-active status. An error string on an account that is otherwise
+serving is degraded telemetry, shown in the detail, never a warning. Dimmed with `?`
 when data is stale or the fetch failed — cached numbers are never presented as live.
 
 **Focus persistence.** The focused provider is stored in plugin settings; if it

@@ -151,11 +151,13 @@ jq -c --arg contractLatest "${contract_latest:-}" --argjson contract "$CONTRACT"
     def live: (.disabled | not) and (.unavailable | not) and .supported
               and ((.groups // []) | length > 0);
     def bottleneck: [.groups[].remainingFraction] | min;
-    # A problem is something wrong on an account the bridge can serve.
-    # supported:false is information — its error explains WHY it is
-    # unsupported and must never raise a warning (PLAN agnosticism rule 5).
+    # A problem is an account that is NOT SERVING: disabled, unavailable, or
+    # in a non-active state. An error string on an account that is otherwise
+    # serving traffic (e.g. an unreadable quota meter upstream) is degraded
+    # telemetry — shown in the detail, never a warning. supported:false is a
+    # capability statement and never a problem (PLAN agnosticism rule 5).
     def troubled: .disabled or .unavailable
-                  or ((.supported != false) and ((.error // "") != ""));
+                  or ((.supported != false) and (.status != "active"));
     . as $doc |
     {
         status: "ok",

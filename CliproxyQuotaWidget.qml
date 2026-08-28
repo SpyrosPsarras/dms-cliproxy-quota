@@ -731,10 +731,12 @@ PluginComponent {
                                 id: accountCard
                                 required property var modelData
 
-                                // supported:false is information, not ill health:
-                                // its error explains why the bridge cannot serve it.
+                                // Healthy = serving. An error string on a serving
+                                // account (unreadable quota meter upstream) is
+                                // degraded telemetry, not ill health; so is
+                                // supported:false, a capability statement.
                                 readonly property bool healthy: !modelData.disabled && !modelData.unavailable
-                                                                && (modelData.error === "" || modelData.supported === false)
+                                                                && (modelData.status === "active" || modelData.supported === false)
                                 // Live accounts open with their bars showing; a
                                 // disabled or empty account starts folded.
                                 property bool expanded: healthy && !modelData.noQuota
@@ -780,7 +782,7 @@ PluginComponent {
                                             color: accountCard.modelData.disabled || accountCard.modelData.unavailable
                                                    || accountCard.modelData.supported === false
                                                    ? Theme.surfaceVariantText
-                                                   : accountCard.modelData.error !== "" ? Theme.error : Theme.success
+                                                   : accountCard.modelData.status !== "active" ? Theme.error : Theme.success
                                         }
 
                                         StyledText {
@@ -888,10 +890,10 @@ PluginComponent {
                                         width: parent.width
                                         text: accountCard.modelData.error
                                         font.pixelSize: Theme.fontSizeSmall
-                                        // Neutral when the account is unsupported: the
-                                        // text explains, it does not alarm.
-                                        font.italic: accountCard.modelData.supported === false
-                                        color: accountCard.modelData.supported === false ? Theme.surfaceVariantText : Theme.error
+                                        // The text explains; it alarms only when the
+                                        // account is actually not serving.
+                                        font.italic: accountCard.healthy
+                                        color: accountCard.healthy ? Theme.surfaceVariantText : Theme.error
                                         wrapMode: Text.WordWrap
                                     }
 

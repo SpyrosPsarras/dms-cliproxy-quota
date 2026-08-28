@@ -19,6 +19,13 @@ _Avoid_: auth file, subscription, user
 An account that is not `disabled`, not `unavailable`, is `supported`, and
 reports at least one group. Only live accounts feed the aggregate.
 
+**Troubled account**:
+An account that is not serving: `disabled`, `unavailable`, or — when
+supported — in a non-active status. Only troubled accounts raise the warning
+glyph. An error string on a serving account is degraded telemetry —
+information, never a warning.
+_Avoid_: erroring account, broken account
+
 **Group**:
 One quota window an account reports (`five-hour`, `seven-day`, ...). Group ids
 and labels are data from the server; the plugin never special-cases them.
