@@ -297,6 +297,21 @@ else
     fail "cross-endpoint cache leak: $(jq -r '.status' <<<"$OUT")"
 fi
 
+echo "=== Test 5c: --force asks the server to refresh too ==="
+setup
+run_script --force >/dev/null
+case "$(head -1 "$TMP/shim/calls.log")" in
+    *"/v0/resource/plugins/pi-bridge/usage?refresh=1"*) pass "forced run carries ?refresh=1 for the server cache" ;;
+    *) fail "forced URL lacks ?refresh=1: $(head -1 "$TMP/shim/calls.log")" ;;
+esac
+run_script >/dev/null 2>&1 || true
+setup
+run_script >/dev/null
+case "$(head -1 "$TMP/shim/calls.log")" in
+    *"?refresh=1"*) fail "ordinary run must NOT force the server cache" ;;
+    *) pass "ordinary run reads the server cache normally" ;;
+esac
+
 echo "=== Test 6: no key anywhere — states it, exits cleanly ==="
 setup
 cat > "$TMP/pi-config.json" <<'CFG'

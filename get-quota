@@ -89,6 +89,10 @@ fi
 # Scheme is case-insensitive; authority ends at /, ? or #.
 origin=$(printf '%s' "$endpoint" | sed -E 's#^([Hh][Tt][Tt][Pp][Ss]?://[^/?\#]+).*#\1#')
 url="${origin}${ROUTE}"
+# A forced run asks the server to refresh its own cache as well. The server
+# rate-limits ?refresh=1 to its cache TTL, so a mashed refresh button degrades
+# to a normal read instead of hammering providers.
+[ "$FORCE" = "1" ] && url="${url}?refresh=1"
 
 # --- Local cache -------------------------------------------------------------
 
