@@ -8,6 +8,7 @@
   "type": "widget",
   "capabilities": ["dankbar-widget"],
   "component": "./CliproxyQuotaWidget.qml",
+  "settings": "./CliproxyQuotaSettings.qml",
   "requires": ["jq", "curl"],
   "permissions": ["settings_read", "settings_write"]
 }

@@ -78,6 +78,32 @@ for f in $QML_FILES; do
     fi
 done
 
+# The carousel popout contract, as far as a static check can carry it: the
+# widget must define a popout, honour the never-0%-for-groupless rule through
+# the noQuota flag, and persist the focused provider through the plugin
+# settings mechanism so the pill survives a restart.
+echo "=== Test 6: carousel popout contract ==="
+WIDGET="$SCRIPT_DIR/CliproxyQuotaWidget.qml"
+if [ -e "$WIDGET" ]; then
+    if grep -q "popoutContent:" "$WIDGET"; then
+        pass "widget defines a popout"
+    else
+        fail "widget has no popoutContent"
+    fi
+    if grep -q "noQuota" "$WIDGET" && grep -q 'tr("no quota reported")' "$WIDGET"; then
+        pass "groupless accounts render 'no quota reported', never a percent"
+    else
+        fail "widget does not handle noQuota accounts"
+    fi
+    if grep -q "savePluginData" "$WIDGET" && grep -q "focusedProvider" "$WIDGET"; then
+        pass "focused provider is persisted via plugin settings"
+    else
+        fail "focused provider is not persisted"
+    fi
+else
+    fail "CliproxyQuotaWidget.qml missing"
+fi
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1

@@ -39,6 +39,21 @@
         { "id": "short-window", "label": "Short", "remainingFraction": 0.8, "resetTime": null, "models": [] },
         { "id": "long-window", "label": "Long", "remainingFraction": 0.7, "resetTime": null, "models": [] }
       ]
+    },
+    {
+      "provider": "legacy",
+      "account": "c***@example.com",
+      "authIndex": "3333333333333333",
+      "label": "c***@example.com",
+      "status": "active",
+      "disabled": false,
+      "unavailable": false,
+      "success": 0,
+      "failed": 0,
+      "lastRequestAt": null,
+      "supported": false,
+      "error": "provider not supported by the bridge",
+      "groups": []
     }
   ],
   "unsupportedProviders": []
