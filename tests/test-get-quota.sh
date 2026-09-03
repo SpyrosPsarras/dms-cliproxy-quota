@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Tests for get-quota, entirely through its stdout — the project's single seam.
-# HTTP is faked by tests/shim/curl on PATH; config comes from a temp pi config.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -15,7 +13,6 @@ fail() { FAIL=$((FAIL + 1)); echo "  FAIL: $1" >&2; }
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-# Fresh shim + config + cache environment for every run.
 setup() {
     rm -rf "$TMP/shim" "$TMP/cache"
     mkdir -p "$TMP/shim" "$TMP/cache"
@@ -27,8 +24,6 @@ setup() {
 CFG
     export CLIPROXY_QUOTA_PI_CONFIG="$TMP/pi-config.json"
     export XDG_CACHE_HOME="$TMP/cache"
-    # Tests own the whole key chain: the default vault command must never fire,
-    # and no override may leak in from the caller's environment.
     export CLIPROXY_QUOTA_VAULT_CMD=""
     unset CLIPROXY_QUOTA_ENDPOINT CLIPROXY_QUOTA_KEY 2>/dev/null || true
 }
@@ -55,13 +50,11 @@ if [ "$(jq -r '.providers[0].provider' <<<"$OUT")" = "claude" ]; then
 else
     fail "first provider is $(jq -r '.providers[0].provider' <<<"$OUT")"
 fi
-# claude's single live account bottoms out at 0 (worst group wins within an account)
 if [ "$(jq -r '.providers[0].aggregate' <<<"$OUT")" = "0" ]; then
     pass "claude aggregate is the worst group of its live account"
 else
     fail "claude aggregate: $(jq -r '.providers[0].aggregate' <<<"$OUT")"
 fi
-# codex's only account is disabled: no live account, no aggregate
 if [ "$(jq -r '.providers[1].aggregate' <<<"$OUT")" = "null" ]; then
     pass "disabled codex account is excluded from the aggregate"
 else
@@ -72,20 +65,17 @@ if [ "$(jq -r '.providers[1].accounts[0].disabled' <<<"$OUT")" = "true" ]; then
 else
     fail "disabled account missing from output"
 fi
-# The popout header renders the server cache age from updatedAt.
 if [ "$(jq -r '.updatedAt' <<<"$OUT")" = "2026-08-26T13:28:29Z" ]; then
     pass "updatedAt carries the server cache timestamp"
 else
     fail "updatedAt: $(jq -r '.updatedAt' <<<"$OUT")"
 fi
-# The popout renders one bar per group: label and resetTime must pass through.
 if [ "$(jq -r '.providers[0].accounts[0].groups[1].label' <<<"$OUT")" = "7d Weekly" ] \
    && [ "$(jq -r '.providers[0].accounts[0].groups[1].resetTime' <<<"$OUT")" = "2026-08-27T03:00:00.146057+00:00" ]; then
     pass "group label and resetTime pass through for the popout bars"
 else
     fail "group label/resetTime mangled: $(jq -c '.providers[0].accounts[0].groups[1]' <<<"$OUT")"
 fi
-# copilot reports no groups: noQuota, never 0%
 if [ "$(jq -r '.providers[2].accounts[0].noQuota' <<<"$OUT")" = "true" ]; then
     pass "groupless account flagged noQuota"
 else
@@ -134,7 +124,6 @@ echo "=== Test 3b: best live account wins across accounts ==="
 setup
 export SHIM_BODY_FILE="$FIXTURES/usage-multi-account.json"
 OUT="$(run_script)"
-# account bottlenecks: 0.2 and 0.7 — the router picks the account with headroom
 if [ "$(jq -r '.providers[0].aggregate' <<<"$OUT")" = "0.7" ]; then
     pass "aggregate is the best bottleneck across live accounts"
 else
@@ -150,8 +139,6 @@ echo "=== Test 3d: supported:false is informational, never a failure ==="
 setup
 export SHIM_BODY_FILE="$FIXTURES/usage-multi-account.json"
 OUT="$(run_script)"
-# the unsupported legacy account carries an explanatory error; that is
-# information, not a problem — the taskbar warning must stay dark
 if [ "$(jq -r '.anyProblem' <<<"$OUT")" = "false" ]; then
     pass "unsupported account's error does not raise anyProblem"
 else
@@ -167,7 +154,6 @@ echo "=== Test 3c: aggregateGroups carry the winning account's group view ==="
 setup
 export SHIM_BODY_FILE="$FIXTURES/usage-multi-account.json"
 OUT="$(run_script)"
-# the 0.7-bottleneck account wins; its own groups (0.8, 0.7) are the headline view
 if [ "$(jq -r '.providers[0].aggregateGroups | length' <<<"$OUT")" = "2" ] \
    && [ "$(jq -r '.providers[0].aggregateGroups[1].remainingFraction' <<<"$OUT")" = "0.7" ]; then
     pass "headline groups come from the winning live account"
@@ -278,18 +264,18 @@ esac
 
 echo "=== Test 5b: cache never outlives the key chain or the endpoint ==="
 setup
-run_script >/dev/null                       # populate the cache
+run_script >/dev/null
 cat > "$TMP/pi-config.json" <<'CFG'
 { "proxy": { "endpoint": "https://proxy.test/v1" } }
 CFG
-OUT="$(run_script)"                         # within TTL, but every key source is gone
+OUT="$(run_script)"
 if [ "$(jq -r '.status' <<<"$OUT")" = "no-key" ]; then
     pass "losing all key sources yields no-key, not cached numbers"
 else
     fail "cache served despite missing key: $(jq -r '.status' <<<"$OUT")"
 fi
 setup
-run_script >/dev/null                       # cache for proxy.test
+run_script >/dev/null
 OUT="$(CLIPROXY_QUOTA_ENDPOINT='https://other.test' SHIM_FAIL=1 run_script)"
 if [ "$(jq -r '.status' <<<"$OUT")" = "unreachable" ]; then
     pass "switching endpoints never serves the previous endpoint's cache"
@@ -331,7 +317,6 @@ fi
 
 echo "=== Test 7: health flags — anyProblem across providers ==="
 setup
-# live fixture: codex disabled — a not-serving account on ANY provider
 OUT="$(run_script)"
 if [ "$(jq -r '.anyProblem' <<<"$OUT")" = "true" ]; then
     pass "not-serving account anywhere raises anyProblem"
@@ -355,8 +340,6 @@ fi
 echo "=== Test 7b: serving state decides problem, not the error string ==="
 setup
 OUT="$(run_script)"
-# copilot serves traffic (status active) with an unreadable quota meter —
-# degraded telemetry, not a degraded provider
 if [ "$(jq -r '.providers[] | select(.provider == "github-copilot") | .problem' <<<"$OUT")" = "false" ]; then
     pass "active account with an error string is not a problem"
 else
@@ -365,7 +348,6 @@ fi
 setup
 export SHIM_BODY_FILE="$FIXTURES/usage-stale.json"
 OUT="$(run_script)"
-# beta is status:error with no error string — not serving IS the problem
 if [ "$(jq -r '.providers[] | select(.provider == "beta") | .problem' <<<"$OUT")" = "true" ] \
    && [ "$(jq -r '.anyProblem' <<<"$OUT")" = "true" ]; then
     pass "non-active status raises the problem flag"
@@ -419,7 +401,6 @@ if [ "$(jq -r '.status' <<<"$OUT")" = "ok" ] && [ "$(jq -r '.stale' <<<"$OUT")" 
 else
     fail "stale fixture: status=$(jq -r '.status' <<<"$OUT") stale=$(jq -r '.stale' <<<"$OUT")"
 fi
-# stale numbers stay available for a dimmed rendering — they are never dropped
 if [ "$(jq -r '.providers[] | select(.provider == "acme") | .aggregate' <<<"$OUT")" = "1" ]; then
     pass "stale payload still carries its numbers"
 else
@@ -454,7 +435,6 @@ fi
 echo "=== Test 12: window duration — server field wins, label pattern fills in ==="
 setup
 OUT="$(run_script)"
-# "5h Session" → 18000s, "30d Window" → 2592000s — generic leading pattern, no id knowledge
 if [ "$(jq -r '.providers[0].aggregateGroups[0].windowSeconds' <<<"$OUT")" = "18000" ]; then
     pass "5h label parses to 18000 seconds"
 else
@@ -468,7 +448,6 @@ fi
 setup
 export SHIM_BODY_FILE="$FIXTURES/usage-healthy.json"
 OUT="$(run_script)"
-# "Some Window" has no leading duration — pace must be silently unavailable
 if [ "$(jq -r '.providers[0].aggregateGroups[0].windowSeconds' <<<"$OUT")" = "null" ]; then
     pass "unparsable label yields null windowSeconds"
 else
@@ -477,7 +456,6 @@ fi
 setup
 export SHIM_BODY_FILE="$FIXTURES/usage-multi-account.json"
 OUT="$(run_script)"
-# a server-provided windowSeconds field beats any label parse
 if [ "$(jq -r '.providers[0].aggregateGroups[0].windowSeconds' <<<"$OUT")" = "900" ]; then
     pass "server windowSeconds passes through untouched"
 else
@@ -490,7 +468,6 @@ export SHIM_BODY_FILE="$FIXTURES/usage-multi-account.json"
 HIST="$TMP/cache/cliproxy-quota/history-$(printf '%s' "https://proxy.test" | sha256sum | cut -c1-16).jsonl"
 mkdir -p "$(dirname "$HIST")"
 YD=$(( $(date +%s) - 86400 ))
-# yesterday's last snapshot: acme at 2 requests — today's fixture sums to 12
 printf '{"ts":%s,"providers":[{"provider":"acme","success":2,"failed":0}]}\n' "$YD" > "$HIST"
 OUT="$(run_script)"
 if [ "$(jq -r '.providers[0].activity[-1].requests' <<<"$OUT")" = "10" ]; then
@@ -503,7 +480,6 @@ if [ "$(wc -l < "$HIST")" = "2" ]; then
 else
     fail "history lines: $(wc -l < "$HIST")"
 fi
-# counter reset (server restart): yesterday higher than today — never negative
 printf '{"ts":%s,"providers":[{"provider":"acme","success":500,"failed":9}]}\n' "$YD" > "$HIST"
 OUT="$(run_script --force)"
 if [ "$(jq -r '.providers[0].activity[-1].requests' <<<"$OUT")" = "0" ]; then

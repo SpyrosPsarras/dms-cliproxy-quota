@@ -17,9 +17,6 @@ PluginComponent {
     property int refreshInterval: (pluginData.refreshInterval || 2) * 60000
     property bool forceFetch: false
 
-    // Settings reach get-quota as environment variables. A key the user never
-    // touched stays out of the map, so the script's own defaults apply; a
-    // cleared vault command is passed as "" and disables that source.
     readonly property var scriptEnvironment: {
         var env = {};
         if (pluginData.vaultCommand !== undefined)
@@ -31,16 +28,9 @@ PluginComponent {
         return env;
     }
 
-    // The whole flat document get-quota prints. null until the first run lands.
     property var quota: null
 
-    // Per-provider opt-out, persisted as a comma-separated list in the plugin
-    // settings. An untracked provider's problems stay off the taskbar triangle
-    // and tab dot; its page always stays in the carousel — the widget never
-    // hides data, it only silences alarms.
     function parseList(raw) {
-        // Deduplicated: a hand-edited "acme, acme" must not need two bell
-        // clicks to re-enable tracking.
         var seen = {};
         return String(raw || "").split(",").map(s => s.trim()).filter(s => {
             if (s === "" || seen[s])
@@ -63,14 +53,9 @@ PluginComponent {
         pluginService?.savePluginData("cliproxyQuota", "untrackedProviders", list.join(", "));
     }
 
-    // Every provider the server reports, always.
     readonly property var visibleProviders: quota && quota.providers ? quota.providers : []
 
-    // The carousel page currently selected. It alone drives the pill's ring,
-    // and it survives restarts through the plugin settings.
     property string focusedProvider: pluginData.focusedProvider || ""
-    // Index of the focused provider, falling back to the first page when the
-    // persisted provider is absent from the payload.
     readonly property int focusedIndex: {
         if (visibleProviders.length === 0)
             return -1;
@@ -81,17 +66,11 @@ PluginComponent {
         return 0;
     }
     readonly property var pillProvider: focusedIndex >= 0 ? visibleProviders[focusedIndex] : null
-    // Remaining fraction, or -1 when there is nothing trustworthy to show.
     readonly property real remaining: pillProvider && pillProvider.aggregate !== null ? pillProvider.aggregate : -1
     readonly property bool dataLive: quota !== null && quota.status === "ok" && quota.stale !== true
-    // A problem on any provider the user still tracks reaches the taskbar,
-    // focused page or not. Untracked providers stay silent.
     readonly property bool anyProblem: visibleProviders.some(p => p.problem === true && !isUntracked(p.provider))
-    // The server offers a newer contract, or sent a payload schema this widget
-    // was not written against.
     readonly property bool drift: quota !== null && quota.drift === true
 
-    // Ticks while the popout is open so countdowns and ages stay current.
     property double nowMs: Date.now()
 
     function focusPage(index) {
@@ -103,10 +82,6 @@ PluginComponent {
         pluginService?.savePluginData("cliproxyQuota", "focusedProvider", focusedProvider);
     }
 
-    // Icon lookup is the one place a provider name may appear in this source
-    // (see tests/test-qml-syntax.sh); every other line treats providers as data.
-    // An unknown provider gets the generic icon, never dropped.
-    // Brand logo asset for a provider's icon, or "" for the DankIcon fallback.
     function providerIconSource(name) {
         var iconAssets = { "claude": 1, "codex": 1, "github-copilot": 1 };
         return iconAssets[name] ? Qt.resolvedUrl("assets/" + name + ".svg") : "";
@@ -123,7 +98,6 @@ PluginComponent {
         return icons[name] || "cloud";
     }
 
-    // "2m" / "3h" / "5d" since an ISO timestamp, or "" when unusable.
     function formatAge(iso) {
         if (!iso)
             return "";
@@ -142,7 +116,6 @@ PluginComponent {
         return Math.floor(hours / 24) + "d";
     }
 
-    // Countdown to an ISO reset timestamp: "resets in 2h 15m".
     function formatCountdown(iso) {
         if (!iso)
             return "";
@@ -162,9 +135,6 @@ PluginComponent {
         return tr("resets in") + " " + span;
     }
 
-    // True once the run currently executing has produced a parseable document.
-    // A run that exits without one (timeout, killed !command, launch failure)
-    // must not leave the previous numbers on display as if they were live.
     property bool receivedThisRun: false
 
     function ringColor(fraction) {
@@ -180,11 +150,8 @@ PluginComponent {
             return "…";
         if (quota.status === "ok") {
             var pct = remaining < 0 ? "—" : Math.round(remaining * 100) + "%";
-            // Stale numbers stay visible but never pose as live: dimmed, "?".
             return dataLive ? pct : pct + "?";
         }
-        // No payload behind this state: state the reason, never a number.
-        // Carries e.g. "server has no quota plugin (pi-bridge)" verbatim.
         return (quota.error || root.tr("no data")) + "?";
     }
 
@@ -230,19 +197,14 @@ PluginComponent {
         }
     }
 
-    // The pill mirrors the carousel's focused page.
     horizontalBarPill: Component {
         Row {
             spacing: Theme.spacingXS
-            // Dimmed while the numbers are not live: never state a percentage
-            // the data cannot back up.
             opacity: root.dataLive ? 1 : 0.6
 
             Canvas {
                 width: root.iconSize
                 height: root.iconSize
-                // A provider with no quota to draw gets a glyph, never an
-                // empty ring pretending to be 0%.
                 visible: root.remaining >= 0
                 anchors.verticalCenter: parent.verticalCenter
                 renderStrategy: Canvas.Cooperative
@@ -262,7 +224,6 @@ PluginComponent {
                     ctx.strokeStyle = Theme.surfaceVariant;
                     ctx.stroke();
 
-                    // The ring fills with what REMAINS: full ring = full quota.
                     if (fraction > 0) {
                         ctx.beginPath();
                         ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + 2 * Math.PI * Math.min(fraction, 1));
@@ -353,8 +314,6 @@ PluginComponent {
                 anchors.horizontalCenter: parent.horizontalCenter
             }
 
-            // The vertical bar has no room for prose, but it must still say
-            // "these numbers are not live": a "?" appears whenever dimmed.
             StyledText {
                 text: "?"
                 visible: !root.dataLive
@@ -409,7 +368,6 @@ PluginComponent {
                 }
             }
 
-            // Countdowns and ages tick only while the popout is visible.
             Timer {
                 interval: 30000
                 running: popoutRoot.visible
@@ -423,7 +381,6 @@ PluginComponent {
                 width: parent.width
                 spacing: Theme.spacingS
 
-                // --- Header: title, server cache age, refresh ---
                 Item {
                     width: parent.width
                     height: 40
@@ -482,17 +439,11 @@ PluginComponent {
                     }
                 }
 
-                // --- Provider tabs: one per provider in server order. The
-                // focused tab expands with the provider's name and aggregate;
-                // ←/→ still page, clicking a tab jumps. Replaces the arrows —
-                // every provider is visible at a glance, like its peers do it.
                 Item {
                     id: navTabs
                     width: parent.width
                     height: 44
                     visible: root.focusedIndex >= 0
-                    // The headline is a number too: dim it with the rest the
-                    // moment the data stops being live.
                     opacity: root.dataLive ? 1 : 0.6
 
                     Row {
@@ -578,9 +529,6 @@ PluginComponent {
                                     onClicked: root.focusPage(providerTab.index)
                                 }
 
-                                // The taskbar glyph says "something is wrong
-                                // somewhere"; this dot says where — straight on
-                                // the offending provider's tab.
                                 Rectangle {
                                     visible: providerTab.modelData.problem === true && !root.isUntracked(providerTab.modelData.provider)
                                     width: 9
@@ -599,9 +547,6 @@ PluginComponent {
                     }
                 }
 
-                // A terminal state names itself: "server has no quota plugin
-                // (pi-bridge)", "key unavailable", "proxy unreachable" — the
-                // script's words, not a generic shrug.
                 StyledText {
                     anchors.horizontalCenter: parent.horizontalCenter
                     width: parent.width - 2 * Theme.spacingM
@@ -613,8 +558,6 @@ PluginComponent {
                     color: Theme.surfaceVariantText
                 }
 
-                // Providers the bridge cannot report on — informational, never
-                // a failure, never part of anyProblem.
                 StyledText {
                     id: unsupportedNote
                     anchors.horizontalCenter: parent.horizontalCenter
@@ -627,10 +570,6 @@ PluginComponent {
                     color: Theme.surfaceVariantText
                 }
 
-                // --- Focused provider page: aggregate group cards, then the
-                // expandable account cards, in ONE scroll area — the server may
-                // report any number of groups, and every account must remain
-                // reachable below them.
                 DankFlickable {
                     width: parent.width
                     height: Math.max(140, root.popoutHeight - 40 - navTabs.height
@@ -638,8 +577,6 @@ PluginComponent {
                             - 3 * Theme.spacingS)
                     contentHeight: accountsColumn.height
                     clip: true
-                    // Everything below reflects the fetched document; dim it the
-                    // moment the numbers stop being live.
                     opacity: root.dataLive ? 1 : 0.6
 
                     Column {
@@ -647,8 +584,6 @@ PluginComponent {
                         width: parent.width
                         spacing: Theme.spacingS
 
-                        // Aggregate view: the winning account's groups, one card
-                        // each with a large remaining-ring.
                         Column {
                             id: aggregateBars
                             width: accountsColumn.width - 2 * Theme.spacingM
@@ -663,9 +598,6 @@ PluginComponent {
                                     id: aggGroupCard
                                     required property var modelData
                                     readonly property real fraction: Math.max(0, Math.min(1, modelData.remainingFraction))
-                                    // Used fraction versus elapsed fraction of the
-                                    // window. NaN (no duration, no reset time, or a
-                                    // window that has not started) keeps pace silent.
                                     readonly property real paceDelta: {
                                         var ws = modelData.windowSeconds;
                                         var rt = modelData.resetTime;
@@ -713,7 +645,6 @@ PluginComponent {
                                                     ctx.strokeStyle = Theme.surfaceVariant;
                                                     ctx.stroke();
 
-                                                    // The ring fills with what REMAINS.
                                                     if (fraction > 0) {
                                                         ctx.beginPath();
                                                         ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + 2 * Math.PI * fraction);
@@ -778,8 +709,6 @@ PluginComponent {
 
                         }
 
-                        // Accounts header with the focused provider's opt-out:
-                        // the bell keeps or removes it from the taskbar triangle.
                         Item {
                             width: accountsColumn.width - 2 * Theme.spacingM
                             anchors.horizontalCenter: parent.horizontalCenter
@@ -818,14 +747,8 @@ PluginComponent {
                                 id: accountCard
                                 required property var modelData
 
-                                // Healthy = serving. An error string on a serving
-                                // account (unreadable quota meter upstream) is
-                                // degraded telemetry, not ill health; so is
-                                // supported:false, a capability statement.
                                 readonly property bool healthy: !modelData.disabled && !modelData.unavailable
                                                                 && (modelData.status === "active" || modelData.supported === false)
-                                // Live accounts open with their bars showing; a
-                                // disabled or empty account starts folded.
                                 property bool expanded: healthy && !modelData.noQuota
 
                                 width: accountsColumn.width - 2 * Theme.spacingM
@@ -922,7 +845,6 @@ PluginComponent {
                                     spacing: Theme.spacingS
                                     visible: accountCard.expanded
 
-                                    // Health line: status, last request, counters.
                                     Row {
                                         spacing: Theme.spacingM
 
@@ -977,15 +899,11 @@ PluginComponent {
                                         width: parent.width
                                         text: accountCard.modelData.error
                                         font.pixelSize: Theme.fontSizeSmall
-                                        // The text explains; it alarms only when the
-                                        // account is actually not serving.
                                         font.italic: accountCard.healthy
                                         color: accountCard.healthy ? Theme.surfaceVariantText : Theme.error
                                         wrapMode: Text.WordWrap
                                     }
 
-                                    // groups: [] means the provider reported no
-                                    // quota — said in words, never shown as 0%.
                                     StyledText {
                                         visible: accountCard.modelData.noQuota
                                         text: root.tr("no quota reported")
@@ -994,7 +912,6 @@ PluginComponent {
                                         color: Theme.surfaceVariantText
                                     }
 
-                                    // One bar per group, filled with what REMAINS.
                                     Repeater {
                                         model: accountCard.modelData.groups
 
@@ -1057,9 +974,6 @@ PluginComponent {
                             }
                         }
 
-                        // --- Daily activity: requests per day, deltas of the
-                        // proxy's counters accumulated locally. Appears once a
-                        // second day of history exists.
                         StyledText {
                             visible: activityCard.visible
                             text: root.tr("Daily Activity")

@@ -1,29 +1,9 @@
 #!/usr/bin/env bash
-# get-quota — fetch provider quota from CLIProxyAPI's pi-bridge plugin and print
-# one flat JSON document the widget renders without branching.
-#
-# Owns every decision that can fail: key resolution, endpoint normalization,
-# HTTP, contract negotiation, staleness, aggregation. Requires: curl, jq.
-#
-# Usage: get-quota [--force]
-#   --force   skip the local cache (the popout refresh button)
-#
-# Environment (set by widget settings; also how tests drive the script):
-#   CLIPROXY_QUOTA_VAULT_CMD  Secret Service lookup command, the key chain's first
-#                             source. Unset: the default below. Empty: disabled.
-#   CLIPROXY_QUOTA_ENDPOINT   manual endpoint, beats pi's config; stripped to origin
-#   CLIPROXY_QUOTA_KEY        literal API key, the key chain's last resort
-#   CLIPROXY_QUOTA_PI_CONFIG  pi's config file (default ~/.pi/agent/pi-cliproxyapi/config.json)
-#   XDG_CACHE_HOME            cache root (default ~/.cache)
-#
-# The key is resolved in memory on every run and never written anywhere.
 set -eu
 
 CONTRACT=2
 ROUTE="/v0/resource/plugins/pi-bridge/usage"
 DEFAULT_VAULT_CMD='secret-tool lookup Title "cliproxyapi api key"'
-# ${VAR-default} keeps the unset/empty distinction: unset means the default
-# lookup, an empty string means the vault source is switched off.
 VAULT_CMD="${CLIPROXY_QUOTA_VAULT_CMD-$DEFAULT_VAULT_CMD}"
 CACHE_TTL_SECONDS=60
 PI_CONFIG="${CLIPROXY_QUOTA_PI_CONFIG:-$HOME/.pi/agent/pi-cliproxyapi/config.json}"
@@ -32,24 +12,16 @@ CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/cliproxy-quota"
 FORCE=0
 [ "${1:-}" = "--force" ] && FORCE=1
 
-# Emit a terminal document for states where no usage payload exists. Same
-# top-level shape as a normal document, so the widget never branches on shape.
-emit_bare() { # status, error message
+emit_bare() {
     jq -cn --arg status "$1" --arg error "$2" \
         '{status: $status, error: $error, stale: true, anyProblem: false, drift: false, providers: []}'
     exit 0
 }
 
-# --- Configuration -----------------------------------------------------------
-
-# Trim leading/trailing whitespace, preserving internal whitespace.
 trim() {
     printf '%s' "$1" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//'
 }
 
-# Resolve a config value the way pi does: "!cmd" runs a command, "$VAR" reads
-# the environment, anything else is a literal. The raw value and any command
-# output are trimmed, matching pi's resolveConfigValue.
 resolve_value() {
     local raw
     raw=$(trim "$1")
@@ -60,16 +32,11 @@ resolve_value() {
     esac
 }
 
-# Endpoint: the manual override beats pi's config.
 endpoint=$(trim "${CLIPROXY_QUOTA_ENDPOINT:-}")
 if [ -z "$endpoint" ] && [ -f "$PI_CONFIG" ]; then
     endpoint=$(jq -r '.proxy.endpoint // empty' "$PI_CONFIG" 2>/dev/null || true)
 fi
 
-# Key: a three-source chain, first non-empty hit wins.
-#   1. the vault lookup command
-#   2. pi's config (resolving !command and $ENV forms the way pi does)
-#   3. the literal from widget settings
 key=""
 if [ -n "$VAULT_CMD" ]; then
     key=$(trim "$(sh -c "$VAULT_CMD" 2>/dev/null || true)")
@@ -85,22 +52,10 @@ fi
 [ -n "$endpoint" ] || emit_bare "no-endpoint" "no endpoint configured"
 [ -n "$key" ] || emit_bare "no-key" "key unavailable"
 
-# Strip whatever path the user stored (pi keeps the /v1 OpenAI base) to origin.
-# Scheme is case-insensitive; authority ends at /, ? or #.
 origin=$(printf '%s' "$endpoint" | sed -E 's#^([Hh][Tt][Tt][Pp][Ss]?://[^/?\#]+).*#\1#')
 url="${origin}${ROUTE}"
-# A forced run asks the server to refresh its own cache as well. The server
-# rate-limits ?refresh=1 to its cache TTL, so a mashed refresh button degrades
-# to a normal read instead of hammering providers.
 [ "$FORCE" = "1" ] && url="${url}?refresh=1"
 
-# --- Local cache -------------------------------------------------------------
-
-# The cache sits BEHIND configuration on purpose: the whole key chain and the
-# endpoint are resolved on every invocation, so losing every key source turns
-# into "no-key" within one run instead of replaying cached numbers as live.
-# The file is scoped to the origin so switching endpoints never serves the
-# previous endpoint's document. Nothing derived from the key touches disk.
 CACHE_FILE="$CACHE_DIR/output-$(printf '%s' "$origin" | sha256sum | cut -c1-16).json"
 
 if [ "$FORCE" = "0" ] && [ -f "$CACHE_FILE" ]; then
@@ -112,14 +67,9 @@ if [ "$FORCE" = "0" ] && [ -f "$CACHE_FILE" ]; then
     fi
 fi
 
-# --- Fetch -------------------------------------------------------------------
-
 mkdir -p "$CACHE_DIR"
 body_file=$(mktemp)
 header_file=$(mktemp)
-# Unique per invocation and on the cache's filesystem, so concurrent runs
-# (several widget instances, a manual refresh racing the timer) each write
-# their own file and the final rename stays atomic.
 out_file=$(mktemp "$CACHE_DIR/.out.XXXXXX")
 trap 'rm -f "$body_file" "$header_file" "$out_file"' EXIT
 
@@ -138,26 +88,12 @@ esac
 contract_latest=$(tr -d '\r' < "$header_file" \
     | awk -F': ' 'tolower($1) == "x-pi-contract-latest" {print $2}' | tail -1)
 
-# --- Normalize + aggregate ---------------------------------------------------
-
-# Group accounts by provider preserving server order. Within each provider:
-# aggregate = the worst group of each live account, best across live accounts —
-# the proxy routes the next request to the account with the most headroom.
 if ! jq -e '.schemaVersion and (.accounts | type == "array")' "$body_file" >/dev/null 2>&1; then
     emit_bare "http-error" "unexpected payload shape"
 fi
 
-# --- Local request history --------------------------------------------------
-
-# The contract carries only cumulative success/failed counters, so daily
-# activity is accumulated here: one snapshot per fetch, per origin, pruned
-# beyond 8 days. Day-over-day deltas of the last counter of each day become
-# the requests-per-day strip; a counter reset (proxy restart) clamps at zero.
 HIST_FILE="$CACHE_DIR/history-$(printf '%s' "$origin" | sha256sum | cut -c1-16).jsonl"
 now_ts=$(date +%s)
-# When the lock cannot be taken, skip this run's append rather than racing a
-# concurrent writer — losing one snapshot to a skip is invisible, losing one
-# to a rewrite race is a corruption path.
 hist_writable=1
 if command -v flock >/dev/null 2>&1; then
     exec 9>"$HIST_FILE.lock"
@@ -195,9 +131,6 @@ jq -c --arg contractLatest "${contract_latest:-}" --argjson contract "$CONTRACT"
     def live: (.disabled | not) and (.unavailable | not) and .supported
               and ((.groups // []) | length > 0);
     def bottleneck: [.groups[].remainingFraction] | min;
-    # Window length for pace: a server-provided field wins; otherwise a generic
-    # leading duration in the label ("5h …", "30d …") — a PATTERN, never a
-    # window id. Unparsable labels yield null and pace stays silently off.
     def window_seconds:
         .windowSeconds // (
             ((.label // "") | capture("^(?<n>[0-9]+)\\s*(?<u>[smhdw])"; "i") // null)
@@ -206,11 +139,6 @@ jq -c --arg contractLatest "${contract_latest:-}" --argjson contract "$CONTRACT"
               end
         );
     def group_view: {id, label, remainingFraction, resetTime: (.resetTime // null), windowSeconds: window_seconds};
-    # A problem is an account that is NOT SERVING: disabled, unavailable, or
-    # in a non-active state. An error string on an account that is otherwise
-    # serving traffic (e.g. an unreadable quota meter upstream) is degraded
-    # telemetry — shown in the detail, never a warning. supported:false is a
-    # capability statement and never a problem (PLAN agnosticism rule 5).
     def troubled: .disabled or .unavailable
                   or ((.supported != false) and (.status != "active"));
     . as $doc |
@@ -222,10 +150,7 @@ jq -c --arg contractLatest "${contract_latest:-}" --argjson contract "$CONTRACT"
         generatedAt: (.generatedAt // null),
         payloadSchema: .schemaVersion,
         contractLatest: (if $contractLatest == "" then null else ($contractLatest | tonumber) end),
-        # A problem on ANY account reaches the taskbar glyph, focused or not.
         anyProblem: ([.accounts[] | troubled] | any),
-        # Either version number moving is drift: a newer contract offered by the
-        # server, or a payload schema this normalizer was not written against.
         drift: (($contractLatest != "" and (($contractLatest | tonumber) > $contract))
                 or (.schemaVersion != 1)),
         unsupportedProviders: (.unsupportedProviders // []),
@@ -236,8 +161,6 @@ jq -c --arg contractLatest "${contract_latest:-}" --argjson contract "$CONTRACT"
                 ([$doc.accounts[] | select(.provider == $p) | select(live)] | max_by(bottleneck)) as $win | {
                 provider: $p,
                 aggregate: (if $win then ($win | bottleneck) else null end),
-                # The winning live account: its groups ARE the aggregate view the
-                # headline renders, bars and reset countdowns included.
                 aggregateGroups: (if $win then [$win.groups[] | group_view] else [] end),
                 activity: ($activity[$p] // []),
                 problem: ([$doc.accounts[] | select(.provider == $p) | troubled] | any),

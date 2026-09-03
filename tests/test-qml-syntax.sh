@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Tests for QML file syntax validation
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -38,8 +37,6 @@ done
 echo "=== Test 3: No hardcoded millisecond date arithmetic ==="
 for f in $QML_FILES; do
     name=$(basename "$f")
-    # 86400000 in date offset arithmetic (e.g. "new Date() - 86400000") is fragile.
-    # Using it for duration formatting (remaining / 86400000) is acceptable.
     if grep "86400000" "$f" | grep -qvE '(remaining|elapsed|duration|diff)'; then
         fail "$name uses 86400000 outside duration formatting"
     else
@@ -47,26 +44,20 @@ for f in $QML_FILES; do
     fi
 done
 
-# The plugin renders whatever quota windows the proxy reports. A window id or a
-# provider name written into the source is the bug this whole project exists to
-# avoid: the day a provider ships a new window, or the user authorises a provider
-# nobody thought of, a special case renders it wrong or drops it. Icon lookup is
-# the one legitimate place a provider name may appear, so it is exempted by name.
-echo "=== Test 4: No provider or quota-window id is special-cased ==="
-BANNED='five-hour|seven-day|primary-window|thirty-day|claude|codex|anthropic|openai|copilot|gemini|kimi|xai'
+echo "=== Test 4: No provider, quota group, or model id is special-cased ==="
+BANNED='five-hour|seven-day|primary-window|thirty-day|claude|codex|anthropic|openai|github|copilot|gemini|kimi|xai|fable|opus|sonnet|haiku|gpt|grok|deepseek|llama|mistral'
+VERSION="[\"'][^\"'/]*(v[0-9]+|[0-9]+\.[0-9]+)"
 for f in $QML_FILES $SCRIPT_DIR/get-quota; do
     [ -e "$f" ] || continue
     name=$(basename "$f")
-    if grep -inE "\"($BANNED)" "$f" | grep -viE '(icon|Icon)' | grep -q .; then
-        grep -inE "\"($BANNED)" "$f" | grep -viE '(icon|Icon)' >&2
-        fail "$name special-cases a provider or window id"
+    if { grep -inE "($BANNED)" "$f"; grep -inE "$VERSION" "$f"; } | grep -vE '(iconAssets|icons\[|providerIcon)' | grep -q .; then
+        { grep -inE "($BANNED)" "$f"; grep -inE "$VERSION" "$f"; } | grep -vE '(iconAssets|icons\[|providerIcon)' >&2
+        fail "$name special-cases a provider, group, model, or version"
     else
-        pass "$name treats providers and windows as data"
+        pass "$name treats providers, groups, and models as data"
     fi
 done
 
-# remainingFraction is REMAINING, not used. Inverting it is a silent 100% error
-# with no visible symptom, so the word `used` may not be attached to it.
 echo "=== Test 5: remainingFraction is not treated as used ==="
 for f in $QML_FILES; do
     name=$(basename "$f")
@@ -78,10 +69,6 @@ for f in $QML_FILES; do
     fi
 done
 
-# The carousel popout contract, as far as a static check can carry it: the
-# widget must define a popout, honour the never-0%-for-groupless rule through
-# the noQuota flag, and persist the focused provider through the plugin
-# settings mechanism so the pill survives a restart.
 echo "=== Test 6: carousel popout contract ==="
 WIDGET="$SCRIPT_DIR/CliproxyQuotaWidget.qml"
 if [ -e "$WIDGET" ]; then

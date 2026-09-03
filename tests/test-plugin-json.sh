@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Tests for plugin.json validation
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"

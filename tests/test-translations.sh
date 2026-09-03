@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Checks that every plugin translation key has complete French and Spanish entries.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -23,7 +22,6 @@ vm.runInContext(catalogSource, sandbox, { filename: catalogPath });
 
 const keys = new Set();
 for (const filename of ["CliproxyQuotaWidget.qml", "CliproxyQuotaSettings.qml"]) {
-    // Files arrive across milestones; a missing one is skipped, not a failure.
     if (!fs.existsSync(path.join(root, filename)))
         continue;
     const source = fs.readFileSync(path.join(root, filename), "utf8");
@@ -44,7 +42,6 @@ for (const key of [...keys].sort()) {
     }
 }
 
-// tr() behavior: unknown keys and unknown languages fall back, never crash.
 if (sandbox.tr("a key nobody added", "fr") !== "a key nobody added") {
     console.error("FAIL: unknown key must fall back to the key itself");
     failed = true;

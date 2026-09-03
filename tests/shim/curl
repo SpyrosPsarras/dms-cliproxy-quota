@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Test shim standing in for curl. Serves $SHIM_BODY_FILE with $SHIM_STATUS,
-# records every invocation so tests can assert on URL, headers and call count.
 set -eu
 
 : "${SHIM_DIR:?SHIM_DIR must be set}"
@@ -19,9 +17,6 @@ for ((i = 0; i < ${#args[@]}; i++)); do
     esac
 done
 
-# A faithful stand-in refuses invocations the real script must never make:
-# without -D/-o the script cannot read headers or body, and without
-# -w %{http_code} it cannot see the status this shim prints.
 if [ -z "$out_file" ] || [ -z "$header_file" ] || [ "$write_out" != "%{http_code}" ]; then
     echo "shim: missing or malformed -D/-o/-w usage: $*" >&2
     exit 64
@@ -40,6 +35,6 @@ if [ -n "$out_file" ] && [ "$status" = "200" ]; then
 fi
 
 if [ "${SHIM_FAIL:-0}" = "1" ]; then
-    exit 7  # curl: failed to connect
+    exit 7
 fi
 printf '%s' "$status"

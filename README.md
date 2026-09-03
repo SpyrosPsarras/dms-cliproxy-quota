@@ -46,8 +46,8 @@ freedesktop Secret Service vault.
   from the bridge and are never used in rendering or aggregation decisions;
   the one exception is picking an icon, and an unknown provider gets a
   generic one. A provider that ships a new quota group tomorrow renders
-  today, and a static test bans provider and group names from the source
-  outside that icon map.
+  today, and a static test bans provider, group, and model names from the
+  source outside that icon map.
 
 ## Installation
 

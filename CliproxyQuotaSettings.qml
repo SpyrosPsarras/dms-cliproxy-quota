@@ -52,7 +52,7 @@ PluginSettings {
         label: "Untracked Providers"
         description: "Comma-separated provider names whose problems stay off the taskbar warning. Toggled from the popout's bell button too. Every provider always stays visible in the popout."
         defaultValue: ""
-        placeholder: "github-copilot"
+        placeholder: "provider-one, provider-two"
     }
 
     SliderSetting {

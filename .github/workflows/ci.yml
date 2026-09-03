@@ -70,7 +70,6 @@ jobs:
           new_version="${major}.${minor}.$((patch + 1))"
           branch="chore/bump-v${new_version}"
 
-          # Skip if a bump PR already exists for this version
           if gh pr list --head "$branch" --json number --jq 'length' | grep -qv '^0$'; then
             echo "PR for $branch already exists, skipping."
             exit 0
@@ -90,6 +89,4 @@ jobs:
             --title "Bump version to ${new_version}" \
             --body "Automated patch version bump: \`${current}\` → \`${new_version}\`"
 
-          # Events created by GITHUB_TOKEN do not trigger other workflow runs.
-          # Dispatch CI explicitly so required checks attach to the bump commit.
           gh workflow run ci.yml --ref "$branch"

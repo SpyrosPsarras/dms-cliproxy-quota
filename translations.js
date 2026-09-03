@@ -1,7 +1,5 @@
 .pragma library
 
-// Translation catalog. Keys are looked up by tr(key, lang); missing languages
-// fall back to English, missing keys fall back to the key itself.
 var strings = {
     "Quota": { fr: "Quota", es: "Cuota" },
     "remaining": { fr: "restant", es: "restante" },
