@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import Quickshell.Io
 import qs.Common
 import qs.Widgets
@@ -986,82 +987,6 @@ PluginComponent {
                         StyledRect {
                             id: activityCard
                             readonly property var activity: root.pillProvider ? (root.pillProvider.activity || []) : []
-                            readonly property real maxRequests: {
-                                var m = 0;
-                                for (var i = 0; i < activity.length; i++)
-                                    m = Math.max(m, activity[i].requests);
-                                return m;
-                            }
-
-                            visible: activity.length > 0
-                            width: accountsColumn.width - 2 * Theme.spacingM
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            height: 96
-                            radius: Theme.cornerRadius
-                            color: Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
-
-                            Row {
-                                anchors.centerIn: parent
-                                spacing: Theme.spacingM
-
-                                Repeater {
-                                    model: activityCard.activity
-
-                                    delegate: Column {
-                                        id: dayColumn
-                                        required property var modelData
-                                        spacing: 2
-
-                                        StyledText {
-                                            anchors.horizontalCenter: parent.horizontalCenter
-                                            text: dayColumn.modelData.requests
-                                            font.pixelSize: Theme.fontSizeSmall - 2
-                                            color: Theme.surfaceVariantText
-                                        }
-
-                                        Item {
-                                            width: 26
-                                            height: 40
-                                            anchors.horizontalCenter: parent.horizontalCenter
-
-                                            Rectangle {
-                                                anchors.bottom: parent.bottom
-                                                anchors.horizontalCenter: parent.horizontalCenter
-                                                width: 18
-                                                radius: 3
-                                                height: activityCard.maxRequests > 0
-                                                        ? Math.max(3, 40 * dayColumn.modelData.requests / activityCard.maxRequests)
-                                                        : 3
-                                                color: dayColumn.modelData.requests > 0 ? Theme.primary : Theme.surfaceVariant
-                                            }
-                                        }
-
-                                        StyledText {
-                                            anchors.horizontalCenter: parent.horizontalCenter
-                                            text: {
-                                                var d = new Date(dayColumn.modelData.date + "T00:00:00");
-                                                return isNaN(d.getTime()) ? "" : d.toLocaleDateString(Qt.locale(), "ddd");
-                                            }
-                                            font.pixelSize: Theme.fontSizeSmall - 2
-                                            color: Theme.surfaceVariantText
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        StyledText {
-                            visible: tokensCard.visible
-                            text: root.tr("Tokens by model")
-                            font.pixelSize: Theme.fontSizeSmall
-                            font.weight: Font.Medium
-                            color: Theme.surfaceVariantText
-                            leftPadding: Theme.spacingM
-                        }
-
-                        StyledRect {
-                            id: tokensCard
-                            readonly property var activity: root.pillProvider ? (root.pillProvider.activity || []) : []
                             readonly property var models: {
                                 var seen = {};
                                 for (var i = 0; i < activity.length; i++) {
@@ -1070,6 +995,13 @@ PluginComponent {
                                         if (t[m] > 0) seen[m] = true;
                                 }
                                 return Object.keys(seen).sort();
+                            }
+                            readonly property bool hasTokens: models.length > 0
+                            readonly property real maxRequests: {
+                                var m = 0;
+                                for (var i = 0; i < activity.length; i++)
+                                    m = Math.max(m, activity[i].requests);
+                                return m;
                             }
                             readonly property real maxTotal: {
                                 var m = 0;
@@ -1086,10 +1018,10 @@ PluginComponent {
                                 Theme.teal || "#26a69a"
                             ]
 
-                            visible: models.length > 0
+                            visible: activity.length > 0
                             width: accountsColumn.width - 2 * Theme.spacingM
                             anchors.horizontalCenter: parent.horizontalCenter
-                            height: tokensColumn.height + 2 * Theme.spacingM
+                            height: hasTokens ? activityContent.height + 2 * Theme.spacingM : 96
                             radius: Theme.cornerRadius
                             color: Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
 
@@ -1118,9 +1050,23 @@ PluginComponent {
                                 return s;
                             }
 
+                            function dayTooltip(entry) {
+                                var lines = [];
+                                var t = entry.tokens || {};
+                                for (var i = 0; i < models.length; i++) {
+                                    var v = t[models[i]] || 0;
+                                    if (v > 0) lines.push(models[i] + "  " + formatTokens(v));
+                                }
+                                var req = entry.requests + " requests";
+                                if (entry.failed > 0) req += " \u00b7 " + entry.failed + " failed";
+                                lines.push(req);
+                                return lines.join("\n");
+                            }
+
                             Column {
-                                id: tokensColumn
+                                id: activityContent
                                 anchors.centerIn: parent
+                                width: activityCard.width - 2 * Theme.spacingM
                                 spacing: Theme.spacingS
 
                                 Row {
@@ -1128,17 +1074,19 @@ PluginComponent {
                                     spacing: Theme.spacingM
 
                                     Repeater {
-                                        model: tokensCard.activity
+                                        model: activityCard.activity
 
                                         delegate: Column {
-                                            id: tokensDay
+                                            id: dayColumn
                                             required property var modelData
                                             readonly property var dayTokens: modelData.tokens || {}
                                             spacing: 2
 
                                             StyledText {
                                                 anchors.horizontalCenter: parent.horizontalCenter
-                                                text: tokensCard.formatTokens(tokensCard.mapTotal(tokensDay.dayTokens))
+                                                text: activityCard.hasTokens
+                                                      ? activityCard.formatTokens(activityCard.mapTotal(dayColumn.dayTokens))
+                                                      : dayColumn.modelData.requests
                                                 font.pixelSize: Theme.fontSizeSmall - 2
                                                 color: Theme.surfaceVariantText
                                             }
@@ -1149,44 +1097,71 @@ PluginComponent {
                                                 anchors.horizontalCenter: parent.horizontalCenter
 
                                                 Column {
+                                                    visible: activityCard.hasTokens
                                                     anchors.bottom: parent.bottom
                                                     anchors.horizontalCenter: parent.horizontalCenter
 
                                                     Repeater {
-                                                        model: tokensCard.models.slice().reverse()
+                                                        model: activityCard.hasTokens ? activityCard.models.slice().reverse() : []
 
                                                         delegate: Rectangle {
                                                             required property var modelData
                                                             required property int index
-                                                            readonly property real value: tokensDay.dayTokens[modelData] || 0
+                                                            readonly property real value: dayColumn.dayTokens[modelData] || 0
                                                             width: 18
-                                                            height: value > 0 && tokensCard.maxTotal > 0
-                                                                    ? Math.max(1, 40 * value / tokensCard.maxTotal)
+                                                            height: value > 0 && activityCard.maxTotal > 0
+                                                                    ? Math.max(1, 40 * value / activityCard.maxTotal)
                                                                     : 0
-                                                            color: tokensCard.modelColor(tokensCard.models.indexOf(modelData))
+                                                            color: activityCard.modelColor(activityCard.models.indexOf(modelData))
                                                         }
                                                     }
                                                 }
+
+                                                Rectangle {
+                                                    visible: !activityCard.hasTokens
+                                                    anchors.bottom: parent.bottom
+                                                    anchors.horizontalCenter: parent.horizontalCenter
+                                                    width: 18
+                                                    radius: 3
+                                                    height: activityCard.maxRequests > 0
+                                                            ? Math.max(3, 40 * dayColumn.modelData.requests / activityCard.maxRequests)
+                                                            : 3
+                                                    color: dayColumn.modelData.requests > 0 ? Theme.primary : Theme.surfaceVariant
+                                                }
+
+                                                MouseArea {
+                                                    id: dayHover
+                                                    anchors.fill: parent
+                                                    hoverEnabled: true
+                                                    acceptedButtons: Qt.NoButton
+                                                }
+
+                                                ToolTip.visible: dayHover.containsMouse
+                                                ToolTip.delay: 250
+                                                ToolTip.text: activityCard.dayTooltip(dayColumn.modelData)
                                             }
 
                                             StyledText {
                                                 anchors.horizontalCenter: parent.horizontalCenter
                                                 text: {
-                                                    var d = new Date(tokensDay.modelData.date + "T00:00:00");
+                                                    var d = new Date(dayColumn.modelData.date + "T00:00:00");
                                                     return isNaN(d.getTime()) ? "" : d.toLocaleDateString(Qt.locale(), "ddd");
                                                 }
                                                 font.pixelSize: Theme.fontSizeSmall - 2
                                                 color: Theme.surfaceVariantText
                                             }
                                         }
-                                    }
+                                }
                                 }
 
                                 Column {
+                                    visible: activityCard.hasTokens
+                                    anchors.left: parent.left
+                                    anchors.leftMargin: Theme.spacingM
                                     spacing: 4
 
                                     Repeater {
-                                        model: tokensCard.models
+                                        model: activityCard.models
 
                                         delegate: Row {
                                             id: legendRow
@@ -1199,12 +1174,12 @@ PluginComponent {
                                                 height: 8
                                                 radius: 2
                                                 anchors.verticalCenter: parent.verticalCenter
-                                                color: tokensCard.modelColor(legendRow.index)
+                                                color: activityCard.modelColor(legendRow.index)
                                             }
 
                                             StyledText {
                                                 anchors.verticalCenter: parent.verticalCenter
-                                                text: legendRow.modelData + "  " + tokensCard.formatTokens(tokensCard.modelWeekTotal(legendRow.modelData))
+                                                text: legendRow.modelData + "  " + activityCard.formatTokens(activityCard.modelWeekTotal(legendRow.modelData))
                                                 font.pixelSize: Theme.fontSizeSmall - 2
                                                 color: Theme.surfaceText
                                             }
