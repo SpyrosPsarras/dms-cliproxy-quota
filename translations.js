@@ -6,6 +6,7 @@ var strings = {
     "Accounts": { fr: "Comptes", es: "Cuentas" },
     "Warnings on the taskbar": { fr: "Alertes dans la barre", es: "Avisos en la barra" },
     "Daily Activity": { fr: "Activité quotidienne", es: "Actividad diaria" },
+    "Tokens by model": { fr: "Jetons par modèle", es: "Tokens por modelo" },
     "on pace": { fr: "dans le rythme", es: "al ritmo" },
     "over pace": { fr: "au-dessus du rythme", es: "sobre el ritmo" },
     "under pace": { fr: "sous le rythme", es: "bajo el ritmo" },

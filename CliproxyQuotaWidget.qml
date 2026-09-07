@@ -1049,6 +1049,170 @@ PluginComponent {
                                 }
                             }
                         }
+
+                        StyledText {
+                            visible: tokensCard.visible
+                            text: root.tr("Tokens by model")
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.weight: Font.Medium
+                            color: Theme.surfaceVariantText
+                            leftPadding: Theme.spacingM
+                        }
+
+                        StyledRect {
+                            id: tokensCard
+                            readonly property var activity: root.pillProvider ? (root.pillProvider.activity || []) : []
+                            readonly property var models: {
+                                var seen = {};
+                                for (var i = 0; i < activity.length; i++) {
+                                    var t = activity[i].tokens || {};
+                                    for (var m in t)
+                                        if (t[m] > 0) seen[m] = true;
+                                }
+                                return Object.keys(seen).sort();
+                            }
+                            readonly property real maxTotal: {
+                                var m = 0;
+                                for (var i = 0; i < activity.length; i++)
+                                    m = Math.max(m, mapTotal(activity[i].tokens || {}));
+                                return m;
+                            }
+                            readonly property var palette: [
+                                Theme.primary || "#82aaff",
+                                Theme.success || "#66bb6a",
+                                Theme.warning || "#ffca28",
+                                Theme.error || "#ef5350",
+                                Theme.tertiary || "#ab47bc",
+                                Theme.teal || "#26a69a"
+                            ]
+
+                            visible: models.length > 0
+                            width: accountsColumn.width - 2 * Theme.spacingM
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            height: tokensColumn.height + 2 * Theme.spacingM
+                            radius: Theme.cornerRadius
+                            color: Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
+
+                            function mapTotal(dayTokens) {
+                                var sum = 0;
+                                for (var name in dayTokens) sum += dayTokens[name];
+                                return sum;
+                            }
+
+                            function modelColor(index) {
+                                return palette[index % palette.length];
+                            }
+
+                            function formatTokens(n) {
+                                if (n >= 1000000)
+                                    return (Math.round(n / 100000) / 10) + "M";
+                                if (n >= 1000)
+                                    return (Math.round(n / 100) / 10) + "k";
+                                return String(n);
+                            }
+
+                            function modelWeekTotal(name) {
+                                var s = 0;
+                                for (var i = 0; i < activity.length; i++)
+                                    s += ((activity[i].tokens || {})[name] || 0);
+                                return s;
+                            }
+
+                            Column {
+                                id: tokensColumn
+                                anchors.centerIn: parent
+                                spacing: Theme.spacingS
+
+                                Row {
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    spacing: Theme.spacingM
+
+                                    Repeater {
+                                        model: tokensCard.activity
+
+                                        delegate: Column {
+                                            id: tokensDay
+                                            required property var modelData
+                                            readonly property var dayTokens: modelData.tokens || {}
+                                            spacing: 2
+
+                                            StyledText {
+                                                anchors.horizontalCenter: parent.horizontalCenter
+                                                text: tokensCard.formatTokens(tokensCard.mapTotal(tokensDay.dayTokens))
+                                                font.pixelSize: Theme.fontSizeSmall - 2
+                                                color: Theme.surfaceVariantText
+                                            }
+
+                                            Item {
+                                                width: 26
+                                                height: 40
+                                                anchors.horizontalCenter: parent.horizontalCenter
+
+                                                Column {
+                                                    anchors.bottom: parent.bottom
+                                                    anchors.horizontalCenter: parent.horizontalCenter
+
+                                                    Repeater {
+                                                        model: tokensCard.models.slice().reverse()
+
+                                                        delegate: Rectangle {
+                                                            required property var modelData
+                                                            required property int index
+                                                            readonly property real value: tokensDay.dayTokens[modelData] || 0
+                                                            width: 18
+                                                            height: value > 0 && tokensCard.maxTotal > 0
+                                                                    ? Math.max(1, 40 * value / tokensCard.maxTotal)
+                                                                    : 0
+                                                            color: tokensCard.modelColor(tokensCard.models.indexOf(modelData))
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            StyledText {
+                                                anchors.horizontalCenter: parent.horizontalCenter
+                                                text: {
+                                                    var d = new Date(tokensDay.modelData.date + "T00:00:00");
+                                                    return isNaN(d.getTime()) ? "" : d.toLocaleDateString(Qt.locale(), "ddd");
+                                                }
+                                                font.pixelSize: Theme.fontSizeSmall - 2
+                                                color: Theme.surfaceVariantText
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Column {
+                                    spacing: 4
+
+                                    Repeater {
+                                        model: tokensCard.models
+
+                                        delegate: Row {
+                                            id: legendRow
+                                            required property var modelData
+                                            required property int index
+                                            spacing: 6
+
+                                            Rectangle {
+                                                width: 8
+                                                height: 8
+                                                radius: 2
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                color: tokensCard.modelColor(legendRow.index)
+                                            }
+
+                                            StyledText {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                text: legendRow.modelData + "  " + tokensCard.formatTokens(tokensCard.modelWeekTotal(legendRow.modelData))
+                                                font.pixelSize: Theme.fontSizeSmall - 2
+                                                color: Theme.surfaceText
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

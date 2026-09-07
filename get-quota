@@ -100,12 +100,20 @@ if command -v flock >/dev/null 2>&1; then
     flock -w 2 9 || hist_writable=0
 fi
 if [ "$hist_writable" = "1" ]; then
-    snapshot=$(jq -c --argjson ts "$now_ts" '{
-        ts: $ts,
-        providers: ([.accounts[] | {provider, success: (.success // 0), failed: (.failed // 0)}]
-            | group_by(.provider)
-            | map({provider: .[0].provider, success: ([.[].success] | add), failed: ([.[].failed] | add)}))
-    }' "$body_file")
+    snapshot=$(jq -c --argjson ts "$now_ts" '
+        . as $doc |
+        {
+            ts: $ts,
+            providers: ([.accounts[] | {provider, success: (.success // 0), failed: (.failed // 0)}]
+                | group_by(.provider)
+                | map(.[0] as $first | {
+                    provider: $first.provider,
+                    success: ([.[].success] | add),
+                    failed: ([.[].failed] | add),
+                    tokens: ([($doc.models // [])[] | select(.provider == $first.provider)]
+                        | map({key: .model, value: (.total // 0)}) | from_entries)
+                }))
+        }' "$body_file")
     hist_tmp=$(mktemp "$CACHE_DIR/.hist.XXXXXX")
     { [ -f "$HIST_FILE" ] && cat "$HIST_FILE"; printf '%s\n' "$snapshot"; } \
         | jq -c --argjson cutoff $((now_ts - 8 * 86400)) 'select(.ts >= $cutoff)' > "$hist_tmp" \
@@ -113,16 +121,26 @@ if [ "$hist_writable" = "1" ]; then
 fi
 
 activity=$(jq -s '
-    [ .[] | .ts as $ts | .providers[] | {provider, day: ($ts | strflocaltime("%Y-%m-%d")), ts: $ts, success, failed} ]
+    [ .[] | .ts as $ts | .providers[]
+      | {provider, day: ($ts | strflocaltime("%Y-%m-%d")), ts: $ts,
+         success, failed, tokens: (.tokens // {})} ]
     | group_by(.provider)
     | map({
         key: .[0].provider,
         value: (group_by(.day) | map(max_by(.ts)) | sort_by(.day)
-            | [ range(1; length) as $i | {
-                date: .[$i].day,
-                requests: ([.[$i].success - .[$i - 1].success, 0] | max),
-                failed: ([.[$i].failed - .[$i - 1].failed, 0] | max)
-            } ]
+            | . as $days
+            | [ range(1; ($days | length)) as $i
+                | ($days[$i].tokens) as $cur
+                | ($days[$i - 1].tokens) as $prev
+                | {
+                    date: $days[$i].day,
+                    requests: ([($days[$i].success - $days[$i - 1].success), 0] | max),
+                    failed: ([($days[$i].failed - $days[$i - 1].failed), 0] | max),
+                    tokens: ([ ($cur | keys_unsorted[]), ($prev | keys_unsorted[]) ] | unique
+                        | map({key: ., value: ([($cur[.] // 0) - ($prev[.] // 0), 0] | max)})
+                        | from_entries
+                        | with_entries(select(.value > 0)))
+                } ]
             | .[-7:])
     })
     | from_entries' "$HIST_FILE" 2>/dev/null) || activity="{}"

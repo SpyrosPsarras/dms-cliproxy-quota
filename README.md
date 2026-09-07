@@ -42,6 +42,15 @@ freedesktop Secret Service vault.
   dropped; an account whose provider reports no quota says "no quota
   reported" instead of pretending 0%. Header shows the server cache's age and
   a refresh button.
+- **Daily activity and tokens by model.** Each provider page charts requests
+  per day for the last week, and — when the bridge reports per-model token
+  counters (pi-bridge 0.10.0 or newer, contract v2 `models` field) — a
+  stacked tokens-per-model chart with a dynamic legend. Token counters are
+  cumulative on the server; the plugin snapshots them on every poll and diffs
+  successive days, so a model that appears for the first time shows its full
+  day, and a server restart clamps that day at zero rather than going
+  negative. Models are data: whatever the bridge reports renders, nothing is
+  named in code.
 - **Providers are data, not code.** Group ids, labels, and providers come
   from the bridge and are never used in rendering or aggregation decisions;
   the one exception is picking an icon, and an unknown provider gets a

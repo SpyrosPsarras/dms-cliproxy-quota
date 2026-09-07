@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-26T13:28:27Z",
+  "client": { "keyHint": "key-3fa…9c41" },
+  "cache": { "updatedAt": "2026-08-26T13:28:29Z", "stale": false, "ttlMs": 120000 },
+  "accounts": [
+    {
+      "provider": "acme",
+      "account": "a***@example.com",
+      "authIndex": "1111111111111111",
+      "label": "a***@example.com",
+      "status": "active",
+      "disabled": false,
+      "unavailable": false,
+      "success": 5,
+      "failed": 0,
+      "lastRequestAt": "2026-08-26T13:20:00Z",
+      "supported": true,
+      "error": null,
+      "groups": [
+        { "id": "short-window", "label": "Short", "remainingFraction": 0.9, "resetTime": null, "models": [] }
+      ]
+    },
+    {
+      "provider": "legacy",
+      "account": "c***@example.com",
+      "authIndex": "3333333333333333",
+      "label": "c***@example.com",
+      "status": "active",
+      "disabled": false,
+      "unavailable": false,
+      "success": 0,
+      "failed": 0,
+      "lastRequestAt": null,
+      "supported": false,
+      "error": "provider not supported by the bridge",
+      "groups": []
+    }
+  ],
+  "unsupportedProviders": [],
+  "models": [
+    { "provider": "acme", "model": "alpha-large", "input": 1000, "output": 200, "reasoning": 50, "cached": 300, "total": 1550 },
+    { "provider": "acme", "model": "alpha-small", "input": 100, "output": 20, "reasoning": 0, "cached": 0, "total": 120 },
+    { "provider": "acme", "model": "alpha-new", "input": 20, "output": 10, "reasoning": 0, "cached": 0, "total": 30 },
+    { "provider": "legacy", "model": "beta-1", "input": 5, "output": 5, "reasoning": 0, "cached": 0, "total": 10 }
+  ]
+}

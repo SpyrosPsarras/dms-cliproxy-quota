@@ -495,6 +495,53 @@ else
     fail "first-run activity: $(jq -c '.providers[0].activity' <<<"$OUT")"
 fi
 
+echo "=== Test 13b: tokens per model per day from local history ==="
+setup
+export SHIM_BODY_FILE="$FIXTURES/usage-models.json"
+HIST="$TMP/cache/cliproxy-quota/history-$(printf '%s' "https://proxy.test" | sha256sum | cut -c1-16).jsonl"
+mkdir -p "$(dirname "$HIST")"
+YD=$(( $(date +%s) - 86400 ))
+printf '{"ts":%s,"providers":[{"provider":"acme","success":2,"failed":0,"tokens":{"alpha-large":500,"alpha-small":50}}]}\n' "$YD" > "$HIST"
+OUT="$(run_script)"
+if [ "$(jq -r '.providers[0].activity[-1].tokens["alpha-large"]' <<<"$OUT")" = "1050" ]; then
+    pass "today's token delta per model is the diff against yesterday's cumulative"
+else
+    fail "token delta: $(jq -c '.providers[0].activity' <<<"$OUT")"
+fi
+if [ "$(jq -r '.providers[0].activity[-1].tokens["alpha-small"]' <<<"$OUT")" = "70" ]; then
+    pass "second model gets its own delta"
+else
+    fail "second model delta: $(jq -c '.providers[0].activity[-1].tokens' <<<"$OUT")"
+fi
+if [ "$(jq -r '.providers[0].activity[-1].tokens["alpha-new"]' <<<"$OUT")" = "30" ]; then
+    pass "a model absent from yesterday's snapshot shows its full cumulative as today's delta"
+else
+    fail "new model delta: $(jq -c '.providers[0].activity[-1].tokens' <<<"$OUT")"
+fi
+if grep -q '"tokens":{' "$HIST"; then
+    pass "fetch appended today's cumulative token snapshot to the history"
+else
+    fail "history snapshot lacks tokens"
+fi
+if [ "$(jq -r '[.providers[] | select(.provider == "legacy")][0].activity | length' <<<"$OUT")" = "0" ]; then
+    pass "provider with no history has no invented token days"
+else
+    fail "legacy activity: $(jq -c '.providers[2].activity' <<<"$OUT")"
+fi
+printf '{"ts":%s,"providers":[{"provider":"acme","success":900,"failed":0,"tokens":{"alpha-large":9000,"alpha-small":900}}]}\n' "$YD" > "$HIST"
+OUT="$(run_script --force)"
+if [ "$(jq -r '.providers[0].activity[-1].tokens | length' <<<"$OUT")" = "1" ] \
+   && [ "$(jq -r '.providers[0].activity[-1].tokens["alpha-new"]' <<<"$OUT")" = "30" ]; then
+    pass "token counter reset clamps the daily delta at zero and drops zero models"
+else
+    fail "token reset: $(jq -c '.providers[0].activity[-1].tokens' <<<"$OUT")"
+fi
+if [ "$(jq -r '.providers[0].activity[-1].requests' <<<"$OUT")" = "0" ]; then
+    pass "request delta still clamps alongside tokens"
+else
+    fail "request delta after reset: $(jq -c '.providers[0].activity[-1]' <<<"$OUT")"
+fi
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1
