@@ -53,40 +53,21 @@ jobs:
 
   version-bump:
     needs: [shellcheck, tests, check-source-changes]
-    if: needs.check-source-changes.outputs.has_source_changes == 'true' && needs.check-source-changes.outputs.version_changed != 'true'
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    concurrency:
+      group: version-bump-maintenance
+      cancel-in-progress: false
     permissions:
       actions: write
       contents: write
       pull-requests: write
     steps:
       - uses: actions/checkout@v4
-      - name: Bump patch version and create PR
+        with:
+          ref: main
+      - name: Maintain version bump PRs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          current=$(jq -r '.version' plugin.json)
-          IFS='.' read -r major minor patch <<< "$current"
-          new_version="${major}.${minor}.$((patch + 1))"
-          branch="chore/bump-v${new_version}"
-
-          if gh pr list --head "$branch" --json number --jq 'length' | grep -qv '^0$'; then
-            echo "PR for $branch already exists, skipping."
-            exit 0
-          fi
-
-          jq --arg v "$new_version" '.version = $v' plugin.json > plugin.json.tmp
-          mv plugin.json.tmp plugin.json
-
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git checkout -b "$branch"
-          git add plugin.json
-          git commit -m "Bump version to ${new_version}"
-          git push -u origin "$branch"
-
-          gh pr create \
-            --title "Bump version to ${new_version}" \
-            --body "Automated patch version bump: \`${current}\` → \`${new_version}\`"
-
-          gh workflow run ci.yml --ref "$branch"
+          CREATE_BUMP: ${{ needs.shellcheck.result == 'success' && needs.tests.result == 'success' && needs.check-source-changes.outputs.has_source_changes == 'true' && needs.check-source-changes.outputs.version_changed != 'true' }}
+        run: bash .github/scripts/version-bump.sh
