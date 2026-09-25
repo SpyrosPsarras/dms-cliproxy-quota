@@ -480,12 +480,18 @@ if [ "$(wc -l < "$HIST")" = "2" ]; then
 else
     fail "history lines: $(wc -l < "$HIST")"
 fi
-printf '{"ts":%s,"providers":[{"provider":"acme","success":500,"failed":9}]}\n' "$YD" > "$HIST"
+EARLIER=$(( $(date +%s) - 60 ))
+printf '{"ts":%s,"providers":[{"provider":"acme","success":500,"failed":9}]}\n{"ts":%s,"providers":[{"provider":"acme","success":530,"failed":9}]}\n' "$YD" "$EARLIER" > "$HIST"
 OUT="$(run_script --force)"
-if [ "$(jq -r '.providers[0].activity[-1].requests' <<<"$OUT")" = "0" ]; then
-    pass "counter reset clamps the daily delta at zero"
+if [ "$(jq -r '.providers[0].activity[-1].requests' <<<"$OUT")" = "42" ]; then
+    pass "restart mid-day: pre-restart delta kept, new counter counted after"
 else
     fail "reset delta: $(jq -c '.providers[0].activity' <<<"$OUT")"
+fi
+if [ "$(jq -r '.providers[0].activity | length' <<<"$OUT")" = "1" ]; then
+    pass "several snapshots on one day collapse into one bar"
+else
+    fail "days: $(jq -c '.providers[0].activity' <<<"$OUT")"
 fi
 setup
 OUT="$(run_script)"
@@ -530,16 +536,22 @@ else
 fi
 printf '{"ts":%s,"providers":[{"provider":"acme","success":900,"failed":0,"tokens":{"alpha-large":9000,"alpha-small":900}}]}\n' "$YD" > "$HIST"
 OUT="$(run_script --force)"
-if [ "$(jq -r '.providers[0].activity[-1].tokens | length' <<<"$OUT")" = "1" ] \
-   && [ "$(jq -r '.providers[0].activity[-1].tokens["alpha-new"]' <<<"$OUT")" = "30" ]; then
-    pass "token counter reset clamps the daily delta at zero and drops zero models"
+if [ "$(jq -c '.providers[0].activity[-1].tokens' <<<"$OUT")" = '{"alpha-large":1550,"alpha-new":30,"alpha-small":120}' ]; then
+    pass "token counter reset counts the new cumulative as post-restart usage"
 else
     fail "token reset: $(jq -c '.providers[0].activity[-1].tokens' <<<"$OUT")"
 fi
-if [ "$(jq -r '.providers[0].activity[-1].requests' <<<"$OUT")" = "0" ]; then
-    pass "request delta still clamps alongside tokens"
+if [ "$(jq -r '.providers[0].activity[-1].requests' <<<"$OUT")" = "5" ]; then
+    pass "request counter reset counts the new cumulative alongside tokens"
 else
     fail "request delta after reset: $(jq -c '.providers[0].activity[-1]' <<<"$OUT")"
+fi
+printf '{"ts":%s,"providers":[{"provider":"acme","success":2,"failed":0,"tokens":{"alpha-large":500,"alpha-gone":80}}]}\n' "$YD" > "$HIST"
+OUT="$(run_script --force)"
+if [ "$(jq -r '.providers[0].activity[-1].tokens | has("alpha-gone")' <<<"$OUT")" = "false" ]; then
+    pass "a model that vanished from the server is not counted as a reset"
+else
+    fail "vanished model: $(jq -c '.providers[0].activity[-1].tokens' <<<"$OUT")"
 fi
 
 echo ""
