@@ -45,12 +45,13 @@ freedesktop Secret Service vault.
 - **Daily activity and tokens by model.** Each provider page charts requests
   per day for the last week, and — when the bridge reports per-model token
   counters (pi-bridge 0.10.0 or newer, contract v2 `models` field) — a
-  stacked tokens-per-model chart with a dynamic legend. Token counters are
-  cumulative on the server; the plugin snapshots them on every poll and diffs
-  successive days, so a model that appears for the first time shows its full
-  day, and a server restart clamps that day at zero rather than going
-  negative. Models are data: whatever the bridge reports renders, nothing is
-  named in code.
+  stacked tokens-per-model chart with a dynamic legend. Counters are
+  cumulative on the server and vanish when it restarts; the plugin snapshots
+  them on every poll, diffs successive snapshots, and sums the deltas per
+  local day. When a counter drops between two polls the plugin reads it as a
+  restart and counts the new value as traffic since the restart, so a restart
+  costs at most one poll interval of history instead of the whole day. Models are
+  data: whatever the bridge reports renders, nothing is named in code.
 - **Providers are data, not code.** Group ids, labels, and providers come
   from the bridge and are never used in rendering or aggregation decisions;
   the one exception is picking an icon, and an unknown provider gets a

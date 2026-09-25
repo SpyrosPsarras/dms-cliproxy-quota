@@ -121,26 +121,30 @@ if [ "$hist_writable" = "1" ]; then
 fi
 
 activity=$(jq -s '
+    def delta(cur; prev): if cur >= prev then cur - prev else cur end;
+    def sum_by_key: group_by(.key) | map({key: .[0].key, value: (map(.value) | add)}) | from_entries;
     [ .[] | .ts as $ts | .providers[]
-      | {provider, day: ($ts | strflocaltime("%Y-%m-%d")), ts: $ts,
-         success, failed, tokens: (.tokens // {})} ]
+      | {provider, ts: $ts, success, failed, tokens: (.tokens // {})} ]
     | group_by(.provider)
     | map({
         key: .[0].provider,
-        value: (group_by(.day) | map(max_by(.ts)) | sort_by(.day)
-            | . as $days
-            | [ range(1; ($days | length)) as $i
-                | ($days[$i].tokens) as $cur
-                | ($days[$i - 1].tokens) as $prev
+        value: (sort_by(.ts) | . as $s
+            | [ range(1; ($s | length)) as $i
+                | $s[$i] as $cur | $s[$i - 1] as $prev
                 | {
-                    date: $days[$i].day,
-                    requests: ([($days[$i].success - $days[$i - 1].success), 0] | max),
-                    failed: ([($days[$i].failed - $days[$i - 1].failed), 0] | max),
-                    tokens: ([ ($cur | keys_unsorted[]), ($prev | keys_unsorted[]) ] | unique
-                        | map({key: ., value: ([($cur[.] // 0) - ($prev[.] // 0), 0] | max)})
-                        | from_entries
-                        | with_entries(select(.value > 0)))
+                    date: ($cur.ts | strflocaltime("%Y-%m-%d")),
+                    requests: delta($cur.success; $prev.success),
+                    failed: delta($cur.failed; $prev.failed),
+                    tokens: ([ ($cur.tokens | keys_unsorted[]), ($prev.tokens | keys_unsorted[]) ] | unique
+                        | map({key: ., value: delta($cur.tokens[.] // 0; $prev.tokens[.] // 0)}))
                 } ]
+            | group_by(.date)
+            | map({
+                date: .[0].date,
+                requests: (map(.requests) | add),
+                failed: (map(.failed) | add),
+                tokens: (map(.tokens[]) | sum_by_key | with_entries(select(.value > 0)))
+              })
             | .[-7:])
     })
     | from_entries' "$HIST_FILE" 2>/dev/null) || activity="{}"
