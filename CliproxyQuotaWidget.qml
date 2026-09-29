@@ -97,9 +97,6 @@ PluginComponent {
             .sort((a, b) => b.total - a.total);
     }
 
-    // Generic, no model is special-cased: drop the provider prefix and date
-    // stamps, words before the first number are the family, numbers the version.
-    // acme-large-2-1-20250101 on provider acme becomes family Large, name Large 2.1.
     function parseModel(raw) {
         var id = String(raw);
         var prefix = pillProvider ? pillProvider.provider + "-" : "";
@@ -126,8 +123,9 @@ PluginComponent {
         var version = [nums.join(".")].concat(tail).filter(s => s !== "").join(" ");
         if (words.length === 0)
             return { family: version || String(raw) || "?", name: version || String(raw) || "?" };
-        var family = words.join(" ");
-        return { family: family, name: version === "" ? family : family + " " + version };
+        var family = words.concat(tail.filter(t => !/^\d/.test(t))).join(" ");
+        var name = [words.join(" "), version].filter(s => s !== "").join(" ");
+        return { family: family, name: name };
     }
 
     readonly property var familyPalette: [
