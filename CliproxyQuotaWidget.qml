@@ -74,6 +74,54 @@ PluginComponent {
 
     property double nowMs: Date.now()
 
+    readonly property var activity: pillProvider ? (pillProvider.activity || []) : []
+    readonly property string todayDate: Qt.formatDate(new Date(nowMs), "yyyy-MM-dd")
+
+    function dayTokens(entry) {
+        var sum = 0;
+        var t = entry.tokens || {};
+        for (var m in t)
+            sum += t[m];
+        return sum;
+    }
+
+    readonly property var modelTotals: {
+        var sums = {};
+        for (var i = 0; i < activity.length; i++) {
+            var t = activity[i].tokens || {};
+            for (var m in t)
+                sums[m] = (sums[m] || 0) + t[m];
+        }
+        return Object.keys(sums).filter(m => sums[m] > 0)
+            .map(m => ({ model: m, total: sums[m] }))
+            .sort((a, b) => b.total - a.total);
+    }
+
+    readonly property var usageStats: {
+        var today = { label: tr("Today"), tokens: 0, requests: 0 };
+        var week = { label: tr("7 days"), tokens: 0, requests: 0 };
+        for (var i = 0; i < activity.length; i++) {
+            var e = activity[i];
+            week.tokens += dayTokens(e);
+            week.requests += e.requests;
+            if (e.date === todayDate) {
+                today.tokens = dayTokens(e);
+                today.requests = e.requests;
+            }
+        }
+        return [today, week];
+    }
+
+    function formatTokens(n) {
+        if (n >= 1e9)
+            return (Math.round(n / 1e8) / 10) + "B";
+        if (n >= 1e6)
+            return (Math.round(n / 1e5) / 10) + "M";
+        if (n >= 1e3)
+            return (Math.round(n / 100) / 10) + "k";
+        return String(n);
+    }
+
     function focusPage(index) {
         if (visibleProviders.length === 0)
             return;
@@ -342,7 +390,8 @@ PluginComponent {
     }
 
     popoutWidth: 420
-    popoutHeight: 620
+    readonly property int basePopoutHeight: 620
+    popoutHeight: basePopoutHeight
 
     popoutContent: Component {
         FocusScope {
@@ -352,6 +401,19 @@ PluginComponent {
             focus: true
 
             property var parentPopout: null
+
+            // Everything above the scrolling area.
+            readonly property real headerHeight: 40 + navTabs.height
+                + (unsupportedNote.visible ? unsupportedNote.height + Theme.spacingS : 0)
+                + 3 * Theme.spacingS
+
+            // Grow with the content, from the base height up to 1.5x, then scroll.
+            Binding {
+                target: root
+                property: "popoutHeight"
+                value: Math.round(Math.min(root.basePopoutHeight * 1.5,
+                                           Math.max(root.basePopoutHeight, popoutRoot.headerHeight + accountsColumn.height)))
+            }
             Connections {
                 target: popoutRoot.parentPopout
                 function onOpened() {
@@ -573,9 +635,7 @@ PluginComponent {
 
                 DankFlickable {
                     width: parent.width
-                    height: Math.max(140, root.popoutHeight - 40 - navTabs.height
-                            - (unsupportedNote.visible ? unsupportedNote.height + Theme.spacingS : 0)
-                            - 3 * Theme.spacingS)
+                    height: Math.max(140, root.popoutHeight - popoutRoot.headerHeight)
                     contentHeight: accountsColumn.height
                     clip: true
                     opacity: root.dataLive ? 1 : 0.6
@@ -598,6 +658,8 @@ PluginComponent {
                                 delegate: StyledRect {
                                     id: aggGroupCard
                                     required property var modelData
+                                    required property int index
+                                    readonly property bool lead: index === 0
                                     readonly property real fraction: Math.max(0, Math.min(1, modelData.remainingFraction))
                                     readonly property real paceDelta: {
                                         var ws = modelData.windowSeconds;
@@ -613,7 +675,7 @@ PluginComponent {
                                     }
 
                                     width: aggregateBars.width
-                                    height: 88
+                                    height: lead ? 124 : 88
                                     radius: Theme.cornerRadius
                                     color: Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
 
@@ -624,8 +686,8 @@ PluginComponent {
                                         spacing: Theme.spacingL
 
                                         Item {
-                                            width: 64
-                                            height: 64
+                                            width: aggGroupCard.lead ? 96 : 64
+                                            height: width
                                             anchors.verticalCenter: parent.verticalCenter
 
                                             Canvas {
@@ -634,6 +696,7 @@ PluginComponent {
 
                                                 property real fraction: aggGroupCard.fraction
                                                 onFractionChanged: requestPaint()
+                                                onWidthChanged: requestPaint()
 
                                                 onPaint: {
                                                     var ctx = getContext("2d");
@@ -660,7 +723,7 @@ PluginComponent {
                                             StyledText {
                                                 anchors.centerIn: parent
                                                 text: Math.round(aggGroupCard.fraction * 100) + "%"
-                                                font.pixelSize: Theme.fontSizeMedium
+                                                font.pixelSize: aggGroupCard.lead ? Theme.fontSizeXLarge : Theme.fontSizeMedium
                                                 font.weight: Font.DemiBold
                                                 color: Theme.surfaceText
                                             }
@@ -668,11 +731,11 @@ PluginComponent {
 
                                         Column {
                                             anchors.verticalCenter: parent.verticalCenter
-                                            spacing: 2
+                                            spacing: aggGroupCard.lead ? 4 : 2
 
                                             StyledText {
                                                 text: aggGroupCard.modelData.label || aggGroupCard.modelData.id
-                                                font.pixelSize: Theme.fontSizeMedium
+                                                font.pixelSize: aggGroupCard.lead ? Theme.fontSizeLarge : Theme.fontSizeMedium
                                                 font.weight: Font.Medium
                                                 color: Theme.surfaceText
                                             }
@@ -708,6 +771,234 @@ PluginComponent {
                                 }
                             }
 
+                        }
+
+                        StyledRect {
+                            id: tokensCard
+                            visible: root.modelTotals.length > 0
+                            width: accountsColumn.width - 2 * Theme.spacingM
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            height: tokensContent.height + 2 * Theme.spacingM
+                            radius: Theme.cornerRadius
+                            color: Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
+
+                            Column {
+                                id: tokensContent
+                                anchors.centerIn: parent
+                                width: parent.width - 2 * Theme.spacingM
+                                spacing: Theme.spacingS
+
+                                StyledText {
+                                    text: root.tr("Token Consumption")
+                                    font.pixelSize: Theme.fontSizeMedium
+                                    font.weight: Font.Medium
+                                    color: Theme.surfaceText
+                                }
+
+                                Row {
+                                    width: parent.width
+
+                                    Repeater {
+                                        model: root.usageStats
+
+                                        delegate: Column {
+                                            id: statColumn
+                                            required property var modelData
+                                            width: tokensContent.width / root.usageStats.length
+                                            spacing: 2
+
+                                            StyledText {
+                                                anchors.horizontalCenter: parent.horizontalCenter
+                                                text: statColumn.modelData.label
+                                                font.pixelSize: Theme.fontSizeSmall
+                                                color: Theme.surfaceVariantText
+                                            }
+
+                                            StyledText {
+                                                anchors.horizontalCenter: parent.horizontalCenter
+                                                text: root.formatTokens(statColumn.modelData.tokens)
+                                                font.pixelSize: Theme.fontSizeXLarge
+                                                color: Theme.primary
+                                            }
+
+                                            StyledText {
+                                                anchors.horizontalCenter: parent.horizontalCenter
+                                                text: statColumn.modelData.requests + " " + root.tr("requests")
+                                                font.pixelSize: Theme.fontSizeSmall
+                                                color: Theme.surfaceVariantText
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        StyledRect {
+                            id: activityCard
+                            readonly property bool hasTokens: root.modelTotals.length > 0
+                            readonly property real maxValue: {
+                                var m = 0;
+                                for (var i = 0; i < root.activity.length; i++)
+                                    m = Math.max(m, value(root.activity[i]));
+                                return m;
+                            }
+
+                            visible: root.activity.length > 0
+                            width: accountsColumn.width - 2 * Theme.spacingM
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            height: activityContent.height + 2 * Theme.spacingM
+                            radius: Theme.cornerRadius
+                            color: Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
+
+                            function value(entry) {
+                                return hasTokens ? root.dayTokens(entry) : entry.requests;
+                            }
+
+                            function dayTooltip(entry) {
+                                var lines = [];
+                                var t = entry.tokens || {};
+                                for (var i = 0; i < root.modelTotals.length; i++) {
+                                    var v = t[root.modelTotals[i].model] || 0;
+                                    if (v > 0) lines.push(root.modelTotals[i].model + "  " + root.formatTokens(v));
+                                }
+                                var req = entry.requests + " " + root.tr("requests");
+                                if (entry.failed > 0) req += " \u00b7 " + entry.failed + " " + root.tr("failed");
+                                lines.push(req);
+                                return lines.join("\n");
+                            }
+
+                            Column {
+                                id: activityContent
+                                anchors.centerIn: parent
+                                width: parent.width - 2 * Theme.spacingM
+                                spacing: Theme.spacingS
+
+                                StyledText {
+                                    text: root.tr("Daily Activity")
+                                    font.pixelSize: Theme.fontSizeMedium
+                                    font.weight: Font.Medium
+                                    color: Theme.surfaceText
+                                }
+
+                                Row {
+                                    id: barsRow
+                                    width: parent.width
+
+                                    Repeater {
+                                        model: root.activity
+
+                                        delegate: Column {
+                                            id: dayColumn
+                                            required property var modelData
+                                            readonly property real value: activityCard.value(modelData)
+                                            readonly property bool isToday: modelData.date === root.todayDate
+                                            width: barsRow.width / root.activity.length
+                                            spacing: 4
+
+                                            StyledText {
+                                                anchors.horizontalCenter: parent.horizontalCenter
+                                                text: activityCard.hasTokens ? root.formatTokens(dayColumn.value) : dayColumn.value
+                                                font.pixelSize: Theme.fontSizeSmall - 2
+                                                color: Theme.surfaceVariantText
+                                            }
+
+                                            Item {
+                                                width: parent.width
+                                                height: 64
+
+                                                Rectangle {
+                                                    anchors.bottom: parent.bottom
+                                                    anchors.horizontalCenter: parent.horizontalCenter
+                                                    width: Math.min(36, parent.width - Theme.spacingS)
+                                                    radius: 4
+                                                    height: activityCard.maxValue > 0 ? Math.max(3, 64 * dayColumn.value / activityCard.maxValue) : 3
+                                                    color: dayColumn.value <= 0 ? Theme.surfaceVariant
+                                                         : dayColumn.isToday ? Theme.primary
+                                                         : Theme.withAlpha(Theme.primary, 0.35)
+                                                }
+
+                                                MouseArea {
+                                                    id: dayHover
+                                                    anchors.fill: parent
+                                                    hoverEnabled: true
+                                                    acceptedButtons: Qt.NoButton
+                                                }
+
+                                                ToolTip.visible: dayHover.containsMouse
+                                                ToolTip.delay: 250
+                                                ToolTip.text: activityCard.dayTooltip(dayColumn.modelData)
+                                            }
+
+                                            StyledText {
+                                                anchors.horizontalCenter: parent.horizontalCenter
+                                                text: {
+                                                    var d = new Date(dayColumn.modelData.date + "T00:00:00");
+                                                    return isNaN(d.getTime()) ? "" : d.toLocaleDateString(Qt.locale(), "ddd");
+                                                }
+                                                font.pixelSize: Theme.fontSizeSmall - 2
+                                                color: dayColumn.isToday ? Theme.primary : Theme.surfaceVariantText
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        StyledRect {
+                            id: modelsCard
+                            visible: root.modelTotals.length > 0
+                            width: accountsColumn.width - 2 * Theme.spacingM
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            height: modelsContent.height + 2 * Theme.spacingM
+                            radius: Theme.cornerRadius
+                            color: Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
+
+                            Column {
+                                id: modelsContent
+                                anchors.centerIn: parent
+                                width: parent.width - 2 * Theme.spacingM
+                                spacing: Theme.spacingS
+
+                                StyledText {
+                                    text: root.tr("Models") + " \u00b7 " + root.tr("7 days")
+                                    font.pixelSize: Theme.fontSizeMedium
+                                    font.weight: Font.Medium
+                                    color: Theme.surfaceText
+                                }
+
+                                Repeater {
+                                    model: root.modelTotals
+
+                                    delegate: Column {
+                                        id: modelRow
+                                        required property var modelData
+                                        width: modelsContent.width
+                                        spacing: 4
+
+                                        StyledText {
+                                            width: parent.width
+                                            elide: Text.ElideRight
+                                            text: modelRow.modelData.model + "  " + root.formatTokens(modelRow.modelData.total)
+                                            font.pixelSize: Theme.fontSizeSmall
+                                            color: Theme.surfaceText
+                                        }
+
+                                        Rectangle {
+                                            width: parent.width
+                                            height: 6
+                                            radius: 3
+                                            color: Theme.surfaceVariant
+
+                                            Rectangle {
+                                                width: parent.width * modelRow.modelData.total / root.modelTotals[0].total
+                                                height: parent.height
+                                                radius: parent.radius
+                                                color: Theme.primary
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
 
                         Item {
@@ -970,220 +1261,6 @@ PluginComponent {
                                     Item {
                                         width: 1
                                         height: Theme.spacingXS
-                                    }
-                                }
-                            }
-                        }
-
-                        StyledText {
-                            visible: activityCard.visible
-                            text: root.tr("Daily Activity")
-                            font.pixelSize: Theme.fontSizeSmall
-                            font.weight: Font.Medium
-                            color: Theme.surfaceVariantText
-                            leftPadding: Theme.spacingM
-                        }
-
-                        StyledRect {
-                            id: activityCard
-                            readonly property var activity: root.pillProvider ? (root.pillProvider.activity || []) : []
-                            readonly property var models: {
-                                var seen = {};
-                                for (var i = 0; i < activity.length; i++) {
-                                    var t = activity[i].tokens || {};
-                                    for (var m in t)
-                                        if (t[m] > 0) seen[m] = true;
-                                }
-                                return Object.keys(seen).sort();
-                            }
-                            readonly property bool hasTokens: models.length > 0
-                            readonly property real maxRequests: {
-                                var m = 0;
-                                for (var i = 0; i < activity.length; i++)
-                                    m = Math.max(m, activity[i].requests);
-                                return m;
-                            }
-                            readonly property real maxTotal: {
-                                var m = 0;
-                                for (var i = 0; i < activity.length; i++)
-                                    m = Math.max(m, mapTotal(activity[i].tokens || {}));
-                                return m;
-                            }
-                            readonly property var palette: [
-                                Theme.primary || "#82aaff",
-                                Theme.success || "#66bb6a",
-                                Theme.warning || "#ffca28",
-                                Theme.error || "#ef5350",
-                                Theme.tertiary || "#ab47bc",
-                                Theme.teal || "#26a69a"
-                            ]
-
-                            visible: activity.length > 0
-                            width: accountsColumn.width - 2 * Theme.spacingM
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            height: hasTokens ? activityContent.height + 2 * Theme.spacingM : 96
-                            radius: Theme.cornerRadius
-                            color: Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
-
-                            function mapTotal(dayTokens) {
-                                var sum = 0;
-                                for (var name in dayTokens) sum += dayTokens[name];
-                                return sum;
-                            }
-
-                            function modelColor(index) {
-                                return palette[index % palette.length];
-                            }
-
-                            function formatTokens(n) {
-                                if (n >= 1000000)
-                                    return (Math.round(n / 100000) / 10) + "M";
-                                if (n >= 1000)
-                                    return (Math.round(n / 100) / 10) + "k";
-                                return String(n);
-                            }
-
-                            function modelWeekTotal(name) {
-                                var s = 0;
-                                for (var i = 0; i < activity.length; i++)
-                                    s += ((activity[i].tokens || {})[name] || 0);
-                                return s;
-                            }
-
-                            function dayTooltip(entry) {
-                                var lines = [];
-                                var t = entry.tokens || {};
-                                for (var i = 0; i < models.length; i++) {
-                                    var v = t[models[i]] || 0;
-                                    if (v > 0) lines.push(models[i] + "  " + formatTokens(v));
-                                }
-                                var req = entry.requests + " requests";
-                                if (entry.failed > 0) req += " \u00b7 " + entry.failed + " failed";
-                                lines.push(req);
-                                return lines.join("\n");
-                            }
-
-                            Column {
-                                id: activityContent
-                                anchors.centerIn: parent
-                                width: activityCard.width - 2 * Theme.spacingM
-                                spacing: Theme.spacingS
-
-                                Row {
-                                    anchors.horizontalCenter: parent.horizontalCenter
-                                    spacing: Theme.spacingM
-
-                                    Repeater {
-                                        model: activityCard.activity
-
-                                        delegate: Column {
-                                            id: dayColumn
-                                            required property var modelData
-                                            readonly property var dayTokens: modelData.tokens || {}
-                                            spacing: 2
-
-                                            StyledText {
-                                                anchors.horizontalCenter: parent.horizontalCenter
-                                                text: activityCard.hasTokens
-                                                      ? activityCard.formatTokens(activityCard.mapTotal(dayColumn.dayTokens))
-                                                      : dayColumn.modelData.requests
-                                                font.pixelSize: Theme.fontSizeSmall - 2
-                                                color: Theme.surfaceVariantText
-                                            }
-
-                                            Item {
-                                                width: 26
-                                                height: 40
-                                                anchors.horizontalCenter: parent.horizontalCenter
-
-                                                Column {
-                                                    visible: activityCard.hasTokens
-                                                    anchors.bottom: parent.bottom
-                                                    anchors.horizontalCenter: parent.horizontalCenter
-
-                                                    Repeater {
-                                                        model: activityCard.hasTokens ? activityCard.models.slice().reverse() : []
-
-                                                        delegate: Rectangle {
-                                                            required property var modelData
-                                                            required property int index
-                                                            readonly property real value: dayColumn.dayTokens[modelData] || 0
-                                                            width: 18
-                                                            height: value > 0 && activityCard.maxTotal > 0
-                                                                    ? Math.max(1, 40 * value / activityCard.maxTotal)
-                                                                    : 0
-                                                            color: activityCard.modelColor(activityCard.models.indexOf(modelData))
-                                                        }
-                                                    }
-                                                }
-
-                                                Rectangle {
-                                                    visible: !activityCard.hasTokens
-                                                    anchors.bottom: parent.bottom
-                                                    anchors.horizontalCenter: parent.horizontalCenter
-                                                    width: 18
-                                                    radius: 3
-                                                    height: activityCard.maxRequests > 0
-                                                            ? Math.max(3, 40 * dayColumn.modelData.requests / activityCard.maxRequests)
-                                                            : 3
-                                                    color: dayColumn.modelData.requests > 0 ? Theme.primary : Theme.surfaceVariant
-                                                }
-
-                                                MouseArea {
-                                                    id: dayHover
-                                                    anchors.fill: parent
-                                                    hoverEnabled: true
-                                                    acceptedButtons: Qt.NoButton
-                                                }
-
-                                                ToolTip.visible: dayHover.containsMouse
-                                                ToolTip.delay: 250
-                                                ToolTip.text: activityCard.dayTooltip(dayColumn.modelData)
-                                            }
-
-                                            StyledText {
-                                                anchors.horizontalCenter: parent.horizontalCenter
-                                                text: {
-                                                    var d = new Date(dayColumn.modelData.date + "T00:00:00");
-                                                    return isNaN(d.getTime()) ? "" : d.toLocaleDateString(Qt.locale(), "ddd");
-                                                }
-                                                font.pixelSize: Theme.fontSizeSmall - 2
-                                                color: Theme.surfaceVariantText
-                                            }
-                                        }
-                                }
-                                }
-
-                                Column {
-                                    visible: activityCard.hasTokens
-                                    anchors.left: parent.left
-                                    anchors.leftMargin: Theme.spacingM
-                                    spacing: 4
-
-                                    Repeater {
-                                        model: activityCard.models
-
-                                        delegate: Row {
-                                            id: legendRow
-                                            required property var modelData
-                                            required property int index
-                                            spacing: 6
-
-                                            Rectangle {
-                                                width: 8
-                                                height: 8
-                                                radius: 2
-                                                anchors.verticalCenter: parent.verticalCenter
-                                                color: activityCard.modelColor(legendRow.index)
-                                            }
-
-                                            StyledText {
-                                                anchors.verticalCenter: parent.verticalCenter
-                                                text: legendRow.modelData + "  " + activityCard.formatTokens(activityCard.modelWeekTotal(legendRow.modelData))
-                                                font.pixelSize: Theme.fontSizeSmall - 2
-                                                color: Theme.surfaceText
-                                            }
-                                        }
                                     }
                                 }
                             }
