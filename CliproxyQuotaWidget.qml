@@ -595,11 +595,40 @@ PluginComponent {
                     visible: root.focusedIndex >= 0
                     opacity: root.dataLive ? 1 : 0.6
 
+                    Flickable {
+                        id: providerScroll
+                        anchors.fill: parent
+                        anchors.leftMargin: Theme.spacingM
+                        anchors.rightMargin: Theme.spacingM
+                        contentWidth: Math.max(width, providerRow.width)
+                        contentHeight: height
+                        flickableDirection: Flickable.HorizontalFlick
+                        boundsBehavior: Flickable.StopAtBounds
+                        clip: true
+
+                        function revealFocused() {
+                            var tab = providerTabs.itemAt(root.focusedIndex);
+                            if (!tab) return;
+                            var left = providerRow.x + tab.x;
+                            var right = left + tab.width;
+                            contentX = Math.max(0, Math.min(contentWidth - width,
+                                left < contentX ? left : right > contentX + width ? right - width : contentX));
+                        }
+                        onWidthChanged: Qt.callLater(revealFocused)
+                        Connections {
+                            target: root
+                            function onFocusedIndexChanged() { Qt.callLater(providerScroll.revealFocused); }
+                        }
+
                     Row {
-                        anchors.centerIn: parent
+                        id: providerRow
+                        x: Math.max(0, (providerScroll.width - width) / 2)
+                        anchors.verticalCenter: parent.verticalCenter
+                        onWidthChanged: Qt.callLater(providerScroll.revealFocused)
                         spacing: Theme.spacingS
 
                         Repeater {
+                            id: providerTabs
                             model: root.visibleProviders
 
                             delegate: StyledRect {
@@ -693,6 +722,7 @@ PluginComponent {
                                 }
                             }
                         }
+                    }
                     }
                 }
 
@@ -1221,7 +1251,7 @@ PluginComponent {
 
                                 readonly property bool healthy: !modelData.disabled && !modelData.unavailable
                                                                 && (modelData.status === "active" || modelData.supported === false)
-                                property bool expanded: healthy && !modelData.noQuota
+                                property bool expanded: (healthy && !modelData.noQuota) || !!modelData.error
 
                                 width: accountsColumn.width - 2 * Theme.spacingM
                                 anchors.horizontalCenter: parent.horizontalCenter
