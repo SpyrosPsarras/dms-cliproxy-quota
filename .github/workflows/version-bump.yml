@@ -1,0 +1,23 @@
+name: Version bump
+on:
+  pull_request_target:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      # Trusted main only; never check out a fork's head in this workflow.
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Bump patch version once for this PR
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: bash .github/scripts/version-bump.sh
