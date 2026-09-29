@@ -5,8 +5,8 @@ plugin that shows how much provider quota remains behind your
 [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) server — every
 provider, every quota group, without opening another tool.
 
-![Screenshot](<img width="390" height="931" alt="image" src="https://github.com/user-attachments/assets/dcfd9540-36db-4300-adf6-81f7c81809de" />
-)
+<img width="390" height="931" alt="image" src="https://github.com/user-attachments/assets/3d4d85a9-1797-4db2-99c0-e4275e4b41e4" />
+
 
 ## Requirements
 
