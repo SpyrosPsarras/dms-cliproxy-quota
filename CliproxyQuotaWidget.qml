@@ -97,6 +97,92 @@ PluginComponent {
             .sort((a, b) => b.total - a.total);
     }
 
+    // Generic, no model is special-cased: drop the provider prefix and date
+    // stamps, words before the first number are the family, numbers the version.
+    // acme-large-2-1-20250101 on provider acme becomes family Large, name Large 2.1.
+    function parseModel(raw) {
+        var id = String(raw);
+        var prefix = pillProvider ? pillProvider.provider + "-" : "";
+        if (prefix !== "-" && id.indexOf(prefix) === 0 && id.length > prefix.length)
+            id = id.slice(prefix.length);
+        // Vowel-less words read as acronyms and go all caps.
+        var cap = s => /^[^aeiouy\d]+$/i.test(s) ? s.toUpperCase() : s.charAt(0).toUpperCase() + s.slice(1);
+        var words = [], nums = [], tail = [];
+        id.split("-").forEach(t => {
+            if (t === "" || /^\d{8}$/.test(t))
+                return;
+            if (nums.length === 0 && tail.length === 0 && !/^\d/.test(t))
+                words.push(cap(t));
+            else if (tail.length === 0 && /^\d+$/.test(t))
+                nums.push(t);
+            else
+                tail.push(cap(t));
+        });
+        if (words.length === 0) {
+            // Version first (3-5-name, 2.5-name): the words after it are the family.
+            words = tail.filter(t => !/^\d/.test(t));
+            tail = tail.filter(t => /^\d/.test(t));
+        }
+        var version = [nums.join(".")].concat(tail).filter(s => s !== "").join(" ");
+        if (words.length === 0)
+            return { family: version || String(raw) || "?", name: version || String(raw) || "?" };
+        var family = words.join(" ");
+        return { family: family, name: version === "" ? family : family + " " + version };
+    }
+
+    readonly property var familyPalette: [
+        Theme.primary || "#82aaff",
+        Theme.success || "#66bb6a",
+        Theme.warning || "#ffca28",
+        Theme.error || "#ef5350",
+        Theme.tertiary || "#ab47bc",
+        Theme.teal || "#26a69a"
+    ]
+
+    // modelTotals grouped by family, biggest first, one palette colour each.
+    readonly property var modelFamilies: {
+        var byFamily = {};
+        var list = [];
+        for (var i = 0; i < modelTotals.length; i++) {
+            var mt = modelTotals[i];
+            var p = parseModel(mt.model);
+            var f = byFamily[p.family];
+            if (!f) {
+                f = byFamily[p.family] = { family: p.family, total: 0, ids: [], versions: [] };
+                list.push(f);
+            }
+            f.total += mt.total;
+            f.ids.push(mt.model);
+            var v = f.versions.find(x => x.name === p.name);
+            if (v)
+                v.total += mt.total;
+            else
+                f.versions.push({ name: p.name, total: mt.total });
+        }
+        list.sort((a, b) => b.total - a.total);
+        for (var j = 0; j < list.length; j++) {
+            list[j].versions.sort((a, b) => b.total - a.total);
+            list[j].color = familyPalette[j % familyPalette.length];
+        }
+        return list;
+    }
+
+    function familyTokens(entry, family) {
+        var t = entry.tokens || {};
+        var sum = 0;
+        for (var i = 0; i < family.ids.length; i++)
+            sum += t[family.ids[i]] || 0;
+        return sum;
+    }
+
+    // Survives the refresh that rebuilds the family delegates.
+    property var expandedFamilies: ({})
+    function toggleFamily(name) {
+        var next = Object.assign({}, expandedFamilies);
+        next[name] = !next[name];
+        expandedFamilies = next;
+    }
+
     readonly property var usageStats: {
         var today = { label: tr("Today"), tokens: 0, requests: 0 };
         var week = { label: tr("7 days"), tokens: 0, requests: 0 };
@@ -855,12 +941,17 @@ PluginComponent {
                             }
 
                             function dayTooltip(entry) {
-                                var lines = [];
+                                var byName = {};
+                                var names = [];
                                 var t = entry.tokens || {};
                                 for (var i = 0; i < root.modelTotals.length; i++) {
                                     var v = t[root.modelTotals[i].model] || 0;
-                                    if (v > 0) lines.push(root.modelTotals[i].model + "  " + root.formatTokens(v));
+                                    if (v <= 0) continue;
+                                    var n = root.parseModel(root.modelTotals[i].model).name;
+                                    if (!(n in byName)) { byName[n] = 0; names.push(n); }
+                                    byName[n] += v;
                                 }
+                                var lines = names.map(n => n + "  " + root.formatTokens(byName[n]));
                                 var req = entry.requests + " " + root.tr("requests");
                                 if (entry.failed > 0) req += " \u00b7 " + entry.failed + " " + root.tr("failed");
                                 lines.push(req);
@@ -906,7 +997,26 @@ PluginComponent {
                                                 width: parent.width
                                                 height: 64
 
+                                                Column {
+                                                    visible: activityCard.hasTokens
+                                                    anchors.bottom: parent.bottom
+                                                    anchors.horizontalCenter: parent.horizontalCenter
+
+                                                    Repeater {
+                                                        model: activityCard.hasTokens ? root.modelFamilies.slice().reverse() : []
+
+                                                        delegate: Rectangle {
+                                                            required property var modelData
+                                                            readonly property real value: root.familyTokens(dayColumn.modelData, modelData)
+                                                            width: Math.min(36, dayColumn.width - Theme.spacingS)
+                                                            height: value > 0 && activityCard.maxValue > 0 ? Math.max(1, 64 * value / activityCard.maxValue) : 0
+                                                            color: modelData.color
+                                                        }
+                                                    }
+                                                }
+
                                                 Rectangle {
+                                                    visible: !activityCard.hasTokens || dayColumn.value <= 0
                                                     anchors.bottom: parent.bottom
                                                     anchors.horizontalCenter: parent.horizontalCenter
                                                     width: Math.min(36, parent.width - Theme.spacingS)
@@ -936,7 +1046,8 @@ PluginComponent {
                                                     return isNaN(d.getTime()) ? "" : d.toLocaleDateString(Qt.locale(), "ddd");
                                                 }
                                                 font.pixelSize: Theme.fontSizeSmall - 2
-                                                color: dayColumn.isToday ? Theme.primary : Theme.surfaceVariantText
+                                                font.weight: dayColumn.isToday ? Font.Bold : Font.Normal
+                                                color: dayColumn.isToday ? Theme.surfaceText : Theme.surfaceVariantText
                                             }
                                         }
                                     }
@@ -967,20 +1078,47 @@ PluginComponent {
                                 }
 
                                 Repeater {
-                                    model: root.modelTotals
+                                    model: root.modelFamilies
 
                                     delegate: Column {
-                                        id: modelRow
+                                        id: familyRow
                                         required property var modelData
+                                        readonly property bool multi: modelData.versions.length > 1
+                                        readonly property bool expanded: multi && root.expandedFamilies[modelData.family] === true
                                         width: modelsContent.width
                                         spacing: 4
 
-                                        StyledText {
+                                        Item {
                                             width: parent.width
-                                            elide: Text.ElideRight
-                                            text: modelRow.modelData.model + "  " + root.formatTokens(modelRow.modelData.total)
-                                            font.pixelSize: Theme.fontSizeSmall
-                                            color: Theme.surfaceText
+                                            height: familyLabel.height
+
+                                            StyledText {
+                                                id: familyLabel
+                                                anchors.left: parent.left
+                                                anchors.right: familyRow.multi ? familyChevron.left : parent.right
+                                                elide: Text.ElideRight
+                                                text: (familyRow.multi ? familyRow.modelData.family : familyRow.modelData.versions[0].name)
+                                                      + "  " + root.formatTokens(familyRow.modelData.total)
+                                                font.pixelSize: Theme.fontSizeSmall
+                                                color: Theme.surfaceText
+                                            }
+
+                                            DankIcon {
+                                                id: familyChevron
+                                                anchors.right: parent.right
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                visible: familyRow.multi
+                                                name: familyRow.expanded ? "expand_less" : "expand_more"
+                                                size: 16
+                                                color: Theme.surfaceVariantText
+                                            }
+
+                                            MouseArea {
+                                                anchors.fill: parent
+                                                enabled: familyRow.multi
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: root.toggleFamily(familyRow.modelData.family)
+                                            }
                                         }
 
                                         Rectangle {
@@ -990,10 +1128,52 @@ PluginComponent {
                                             color: Theme.surfaceVariant
 
                                             Rectangle {
-                                                width: parent.width * modelRow.modelData.total / root.modelTotals[0].total
+                                                width: parent.width * familyRow.modelData.total / root.modelFamilies[0].total
                                                 height: parent.height
                                                 radius: parent.radius
-                                                color: Theme.primary
+                                                color: familyRow.modelData.color
+                                            }
+                                        }
+
+                                        Column {
+                                            id: versionList
+                                            visible: familyRow.expanded
+                                            width: parent.width
+                                            leftPadding: Theme.spacingM
+                                            topPadding: 2
+                                            spacing: 4
+
+                                            Repeater {
+                                                model: familyRow.expanded ? familyRow.modelData.versions : []
+
+                                                delegate: Column {
+                                                    id: versionRow
+                                                    required property var modelData
+                                                    width: versionList.width - Theme.spacingM
+                                                    spacing: 2
+
+                                                    StyledText {
+                                                        width: parent.width
+                                                        elide: Text.ElideRight
+                                                        text: versionRow.modelData.name + "  " + root.formatTokens(versionRow.modelData.total)
+                                                        font.pixelSize: Theme.fontSizeSmall - 1
+                                                        color: Theme.surfaceVariantText
+                                                    }
+
+                                                    Rectangle {
+                                                        width: parent.width
+                                                        height: 4
+                                                        radius: 2
+                                                        color: Theme.surfaceVariant
+
+                                                        Rectangle {
+                                                            width: parent.width * versionRow.modelData.total / familyRow.modelData.total
+                                                            height: parent.height
+                                                            radius: parent.radius
+                                                            color: Theme.withAlpha(familyRow.modelData.color, 0.6)
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
                                     }
