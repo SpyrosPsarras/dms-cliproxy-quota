@@ -100,6 +100,10 @@ case "$CALL" in
     *"Authorization: Bearer test-key-123"*) pass "ordinary key sent as Bearer" ;;
     *) fail "Authorization header missing" ;;
 esac
+case "${CALL%% | stdin:*}" in
+    *"test-key-123"*) fail "key visible in curl argv" ;;
+    *) pass "key kept out of curl argv" ;;
+esac
 case "$CALL" in
     *"X-Pi-Contract: 2"*) pass "contract version 2 pinned" ;;
     *) fail "X-Pi-Contract header missing" ;;

@@ -2,7 +2,9 @@
 set -eu
 
 : "${SHIM_DIR:?SHIM_DIR must be set}"
-echo "$*" >> "$SHIM_DIR/calls.log"
+stdin=""
+for a in "$@"; do [ "$a" = "@-" ] && stdin=$(cat); done
+echo "$* | stdin: $stdin" >> "$SHIM_DIR/calls.log"
 
 status="${SHIM_STATUS:-200}"
 out_file=""

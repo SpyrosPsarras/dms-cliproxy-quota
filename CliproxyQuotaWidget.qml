@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls
 import Quickshell.Io
 import qs.Common
 import qs.Widgets
@@ -134,7 +133,7 @@ PluginComponent {
         Theme.warning || "#ffca28",
         Theme.error || "#ef5350",
         Theme.tertiary || "#ab47bc",
-        Theme.teal || "#26a69a"
+        Theme.info || "#26a69a"
     ]
 
     // modelTotals grouped by family, biggest first, one palette colour each.
@@ -964,6 +963,10 @@ PluginComponent {
                             radius: Theme.cornerRadius
                             color: Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
 
+                            DankTooltipV2 {
+                                id: dayTip
+                            }
+
                             function value(entry) {
                                 return hasTokens ? root.dayTokens(entry) : entry.requests;
                             }
@@ -983,7 +986,8 @@ PluginComponent {
                                 var req = entry.requests + " " + root.tr("requests");
                                 if (entry.failed > 0) req += " \u00b7 " + entry.failed + " " + root.tr("failed");
                                 lines.push(req);
-                                return lines.join("\n");
+                                // DankTooltipV2 shows one line and elides the rest.
+                                return lines.join("  \u00b7  ");
                             }
 
                             Column {
@@ -1060,11 +1064,9 @@ PluginComponent {
                                                     anchors.fill: parent
                                                     hoverEnabled: true
                                                     acceptedButtons: Qt.NoButton
+                                                    onEntered: dayTip.show(activityCard.dayTooltip(dayColumn.modelData), parent, 0, 0, "top")
+                                                    onExited: dayTip.hide()
                                                 }
-
-                                                ToolTip.visible: dayHover.containsMouse
-                                                ToolTip.delay: 250
-                                                ToolTip.text: activityCard.dayTooltip(dayColumn.modelData)
                                             }
 
                                             StyledText {
