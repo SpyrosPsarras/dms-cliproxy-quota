@@ -73,8 +73,9 @@ header_file=$(mktemp)
 out_file=$(mktemp "$CACHE_DIR/.out.XXXXXX")
 trap 'rm -f "$body_file" "$header_file" "$out_file"' EXIT
 
-http_code=$(curl -sS -m 15 \
-    -H "Authorization: Bearer $key" \
+# The key goes in on stdin (-H @-) so it never shows in ps or /proc/<pid>/cmdline.
+http_code=$(printf 'Authorization: Bearer %s\n' "$key" | curl -sS -m 15 \
+    -H @- \
     -H "X-Pi-Contract: $CONTRACT" \
     -D "$header_file" -o "$body_file" -w "%{http_code}" \
     "$url" 2>/dev/null) || emit_bare "unreachable" "proxy unreachable"
