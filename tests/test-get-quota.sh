@@ -124,12 +124,12 @@ else
     fail "group fraction mangled"
 fi
 
-echo "=== Test 3b: best live account wins across accounts ==="
+echo "=== Test 3b: account used last wins across accounts ==="
 setup
 export SHIM_BODY_FILE="$FIXTURES/usage-multi-account.json"
 OUT="$(run_script)"
 if [ "$(jq -r '.providers[0].aggregate' <<<"$OUT")" = "0.7" ]; then
-    pass "aggregate is the best bottleneck across live accounts"
+    pass "aggregate is the bottleneck of the live account used last"
 else
     fail "multi-account aggregate: $(jq -r '.providers[0].aggregate' <<<"$OUT")"
 fi
@@ -137,6 +137,58 @@ if [ "$(jq -r '[.providers[] | select(.provider == "acme")] | length' <<<"$OUT")
     pass "two accounts of one provider collapse into one provider entry"
 else
     fail "acme provider entries: $(jq -r '[.providers[] | select(.provider == "acme")] | length' <<<"$OUT")"
+fi
+
+echo "=== Test 3e: the account used last drives the aggregate ==="
+setup
+jq '(.accounts[0].lastRequestAt) = "2026-08-26T11:26:00.5-02:00"' \
+    "$FIXTURES/usage-multi-account.json" > "$TMP/last-used.json"
+export SHIM_BODY_FILE="$TMP/last-used.json"
+OUT="$(run_script)"
+if [ "$(jq -r '.providers[0].aggregate' <<<"$OUT")" = "0.2" ]; then
+    pass "newest request wins across mixed offsets (13:26Z beats 13:25Z)"
+else
+    fail "last-used aggregate: $(jq -r '.providers[0].aggregate' <<<"$OUT")"
+fi
+if [ "$(jq -r '.providers[0].lastRequestEpoch' <<<"$OUT")" = "$(jq -n '"2026-08-26T13:26:00Z" | fromdateiso8601')" ]; then
+    pass "provider lastRequestEpoch is its newest request"
+else
+    fail "lastRequestEpoch: $(jq -r '.providers[0].lastRequestEpoch' <<<"$OUT")"
+fi
+if [ "$(jq -r '.providers[] | select(.provider == "legacy") | .lastRequestEpoch' <<<"$OUT")" = "null" ]; then
+    pass "provider with no request time has null lastRequestEpoch"
+else
+    fail "legacy lastRequestEpoch should be null"
+fi
+setup
+jq '.accounts[].lastRequestAt = null' "$FIXTURES/usage-multi-account.json" > "$TMP/never-used.json"
+export SHIM_BODY_FILE="$TMP/never-used.json"
+OUT="$(run_script)"
+if [ "$(jq -r '.providers[0].aggregate' <<<"$OUT")" = "0.2" ]; then
+    pass "no request times: worst live account wins"
+else
+    fail "never-used aggregate: $(jq -r '.providers[0].aggregate' <<<"$OUT")"
+fi
+
+setup
+jq '.accounts[0].lastRequestAt = "2026-08-26T15:26Z" | .accounts[1].lastRequestAt = "2026-13-45T99:99:99Z"' \
+    "$FIXTURES/usage-multi-account.json" > "$TMP/bad-time.json"
+export SHIM_BODY_FILE="$TMP/bad-time.json"
+OUT="$(run_script)"
+if [ "$(jq -r '.status' <<<"$OUT")" = "ok" ] && [ "$(jq -r '.providers[0].aggregate' <<<"$OUT")" = "0.2" ]; then
+    pass "unparsable request times read as none, document still builds"
+else
+    fail "bad timestamps: $(jq -c '{status, a: .providers[0].aggregate}' <<<"$OUT")"
+fi
+setup
+jq '.accounts[1].disabled = true | .accounts[1].lastRequestAt = "2026-08-26T23:00:00Z"' \
+    "$FIXTURES/usage-multi-account.json" > "$TMP/disabled-newest.json"
+export SHIM_BODY_FILE="$TMP/disabled-newest.json"
+OUT="$(run_script)"
+if [ "$(jq -r '.providers[0].lastRequestEpoch' <<<"$OUT")" = "$(jq -n '"2026-08-26T13:20:00Z" | fromdateiso8601')" ]; then
+    pass "non-live accounts do not make a provider active"
+else
+    fail "disabled lastRequestEpoch: $(jq -r '.providers[0].lastRequestEpoch' <<<"$OUT")"
 fi
 
 echo "=== Test 3d: supported:false is informational, never a failure ==="

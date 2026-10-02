@@ -22,5 +22,24 @@ assert.equal(context.contentX, 0);
 const expanded = source.match(/^\s+property bool expanded: (.*)/m)[1];
 assert.equal(vm.runInNewContext(expanded, {healthy: true, modelData: {noQuota: true, error: 'provider API failed: 429'}}), true);
 assert.equal(vm.runInNewContext(expanded, {healthy: true, modelData: {noQuota: true, error: ''}}), false);
-console.log('PASS: tabs scroll both directions, short rows stay centered, quota errors expand');
+const follow = '(function() {' + source.match(/function followActiveProvider\(\) \{([\s\S]*?)\n    \}/)[1] + '})()';
+const saved = {};
+const root = {visibleProviders: [{provider: 'claude', lastRequestEpoch: 100}, {provider: 'codex', lastRequestEpoch: 200}, {provider: 'idle', lastRequestEpoch: null}],
+    activeProvider: 'codex', focusedProvider: 'claude', pluginService: {savePluginData: (_, k, v) => { saved[k] = v; }}};
+const run = () => vm.runInNewContext(follow, root);
+run();
+assert.equal(root.focusedProvider, 'claude', 'manual focus holds while the active provider is unchanged');
+root.visibleProviders[0].lastRequestEpoch = 300;
+run();
+assert.equal(root.focusedProvider, 'claude');
+assert.equal(root.activeProvider, 'claude');
+assert.deepEqual(saved, {activeProvider: 'claude', focusedProvider: 'claude'});
+root.focusedProvider = 'idle';
+root.visibleProviders[1].lastRequestEpoch = 400;
+run();
+assert.equal(root.focusedProvider, 'codex', 'a request on another provider moves the focus');
+root.visibleProviders = [];
+run();
+assert.equal(root.focusedProvider, 'codex', 'no data keeps the focus');
+console.log('PASS: tabs scroll both directions, short rows stay centered, quota errors expand, focus follows the active provider');
 NODE

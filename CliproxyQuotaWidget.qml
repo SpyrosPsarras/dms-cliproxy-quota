@@ -214,6 +214,23 @@ PluginComponent {
         pluginService?.savePluginData("cliproxyQuota", "focusedProvider", focusedProvider);
     }
 
+    // The provider that took the newest request. A manual focus holds until
+    // that changes; then the pill follows it.
+    property string activeProvider: pluginData.activeProvider || ""
+    function followActiveProvider() {
+        var newest = null;
+        visibleProviders.forEach(p => {
+            if (p.lastRequestEpoch != null && (!newest || p.lastRequestEpoch > newest.lastRequestEpoch))
+                newest = p;
+        });
+        if (!newest || newest.provider === activeProvider)
+            return;
+        activeProvider = newest.provider;
+        focusedProvider = newest.provider;
+        pluginService?.savePluginData("cliproxyQuota", "activeProvider", activeProvider);
+        pluginService?.savePluginData("cliproxyQuota", "focusedProvider", focusedProvider);
+    }
+
     function providerIconSource(name) {
         var iconAssets = { "claude": 1, "codex": 1, "github-copilot": 1 };
         return iconAssets[name] ? Qt.resolvedUrl("assets/" + name + ".svg") : "";
@@ -303,6 +320,7 @@ PluginComponent {
                     root.receivedThisRun = true;
                 } catch (e) {
                 }
+                root.followActiveProvider();
             }
         }
 

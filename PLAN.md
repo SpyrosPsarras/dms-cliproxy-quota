@@ -90,8 +90,9 @@ and must not copy that mapping.
 **Popout — a carousel, one page per provider.** Arrows at the top navigate; the page
 order is the server's order. Each page:
 
-- Headline: the provider's aggregate (worst group within each live account, best
-  across live accounts) with one bar per group of the aggregate's account view,
+- Headline: the provider's aggregate (worst group of the live account that took
+  the newest request, or the worst live account when none reports a request
+  time) with one bar per group of the aggregate's account view,
   reset countdowns from `resetTime`.
 - Expandable account list: every account, including disabled ones labelled as
   disabled. Per account: masked label, health line (`status`, `error`,
