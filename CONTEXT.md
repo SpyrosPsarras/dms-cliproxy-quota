@@ -37,14 +37,20 @@ inverting it is a silent error.
 _Avoid_: usage, used, consumed
 
 **Aggregate**:
-A provider's headline number: the worst group within each live account, then
-the best of those across the provider's live accounts.
+A provider's headline number: the worst group of the live account that took the
+newest request. If no live account reports a request time, the worst group
+across all live accounts.
 _Avoid_: total, average
 
 **Focused provider**:
 The carousel page currently selected. It alone drives the pill's ring.
-Persisted across restarts.
-_Avoid_: active provider, current provider
+Persisted across restarts. A manual choice holds until the active provider
+changes, then focus moves to the new active provider.
+_Avoid_: current provider
+
+**Active provider**:
+The provider whose live account took the newest request, by `lastRequestAt`.
+Persisted, so a change while the shell was off still moves the focus.
 
 **Pill**:
 The taskbar element: a ring for the focused provider's aggregate, plus a

@@ -27,9 +27,11 @@ freedesktop Secret Service vault.
 ## What you get
 
 - **Taskbar pill** — a ring filled with what *remains* of the focused
-  provider's quota: the worst group within each live account, then the best
-  across the provider's live accounts — the account your proxy would route to
-  next. A warning glyph when any provider has an account that is not serving
+  provider's quota: the worst group of the live account that took the newest
+  request, so the ring tracks the account the proxy is using now. The pill
+  follows the provider that took the newest request. Picking a provider by
+  hand holds until requests move to another provider. A warning glyph when
+  any provider has an account that is not serving
   — disabled, unavailable, or (when supported) in a non-active state — on any
   page. An error
   string on an account that is otherwise serving traffic (an unreadable quota
