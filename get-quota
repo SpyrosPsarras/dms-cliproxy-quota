@@ -202,7 +202,7 @@ jq -c --arg contractLatest "${contract_latest:-}" --argjson contract "$CONTRACT"
                 aggregate: (if $win then ($win | bottleneck) else null end),
                 aggregateGroups: (if $win then [$win.groups[] | group_view] else [] end),
                 activity: ($activity[$p] // []),
-                problem: ([$doc.accounts[] | select(.provider == $p) | troubled] | any),
+                problem: ([$all[] | troubled] | all),
                 accounts: [$doc.accounts[] | select(.provider == $p) | {
                     account, label, status, disabled, unavailable, supported,
                     success, failed, lastRequestAt,

@@ -102,10 +102,11 @@ order is the server's order. Each page:
   rate-limits that to its cache TTL, so a mashed button degrades to a normal read).
 
 **Taskbar pill.** Ring = the focused provider's aggregate. If the focused provider has
-no groups, a glyph instead of a ring. Warning glyph when **any** provider (not just
-the focused one) has a troubled account — `disabled`, `unavailable`, or (when
-supported) in a non-active status. An error string on an account that is otherwise
-serving is degraded telemetry, shown in the detail, never a warning. Dimmed with `?`
+no groups, a glyph instead of a ring. A provider has a problem (dot on its tab)
+when **every** one of its accounts is troubled — `disabled`, `unavailable`, or
+(when supported) in a non-active status. One used-up account beside a serving one
+is not a problem. Warning glyph on the pill only when **every** tracked provider
+has a problem. An error string on an account that is otherwise serving is degraded telemetry, shown in the detail, never a warning. Dimmed with `?`
 when data is stale or the fetch failed — cached numbers are never presented as live.
 
 **Focus persistence.** The focused provider is stored in plugin settings; if it
@@ -167,7 +168,7 @@ flat structure it renders without branching. Local cache TTL 60 s against the se
   fetch, contract version 2 pinned, normalize, aggregate, cache, `--force`. Tested
   offline against `tests/fixtures/`. Retarget CI to `main`; QML/translation tests
   skip (not fail) while no `.qml` exists.
-- **M2 — pill.** Focused-provider ring, any-provider warning glyph, stale dimming.
+- **M2 — pill.** Focused-provider ring, all-providers warning glyph, stale dimming.
   First installable build.
 - **M3 — carousel popout.** Provider pages, arrows, aggregate headline, expandable
   account list, reset countdowns, refresh button.

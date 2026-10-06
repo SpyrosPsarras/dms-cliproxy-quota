@@ -68,7 +68,8 @@ PluginComponent {
     readonly property var pillProvider: focusedIndex >= 0 ? visibleProviders[focusedIndex] : null
     readonly property real remaining: pillProvider && pillProvider.aggregate !== null ? pillProvider.aggregate : -1
     readonly property bool dataLive: quota !== null && quota.status === "ok" && quota.stale !== true
-    readonly property bool anyProblem: visibleProviders.some(p => p.problem === true && !isUntracked(p.provider))
+    readonly property var trackedProviders: visibleProviders.filter(p => !isUntracked(p.provider))
+    readonly property bool allProblem: trackedProviders.length > 0 && trackedProviders.every(p => p.problem === true)
     readonly property bool drift: quota !== null && quota.drift === true
 
     property double nowMs: Date.now()
@@ -402,7 +403,7 @@ PluginComponent {
 
             DankIcon {
                 name: "warning"
-                visible: root.anyProblem
+                visible: root.allProblem
                 size: root.iconSize
                 color: Theme.warning
                 anchors.verticalCenter: parent.verticalCenter
@@ -474,7 +475,7 @@ PluginComponent {
 
             DankIcon {
                 name: "warning"
-                visible: root.anyProblem
+                visible: root.allProblem
                 size: root.iconSize
                 color: Theme.warning
                 anchors.horizontalCenter: parent.horizontalCenter

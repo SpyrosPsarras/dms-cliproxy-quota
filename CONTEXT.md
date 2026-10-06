@@ -21,8 +21,8 @@ reports at least one group. Only live accounts feed the aggregate.
 
 **Troubled account**:
 An account that is not serving: `disabled`, `unavailable`, or — when
-supported — in a non-active status. Only troubled accounts raise the warning
-glyph. An error string on a serving account is degraded telemetry —
+supported — in a non-active status. A provider whose accounts are all
+troubled has a problem and gets a tab dot. An error string on a serving account is degraded telemetry —
 information, never a warning.
 _Avoid_: erroring account, broken account
 
@@ -54,7 +54,8 @@ Persisted, so a change while the shell was off still moves the focus.
 
 **Pill**:
 The taskbar element: a ring for the focused provider's aggregate, plus a
-warning glyph for a problem on any provider.
+warning glyph when every tracked provider has a problem. A provider has a
+problem when none of its accounts is serving; its tab carries a dot.
 
 **Contract version**:
 The response shape negotiated via the `X-Pi-Contract` request header and echoed
@@ -67,7 +68,7 @@ contract version; contract 2 currently ships payload schema 1.
 _Avoid_: contract
 
 **Untracked provider**:
-A provider whose troubled accounts stay off the taskbar warning, by the user's
+A provider whose problem stays off the tab dot and the taskbar warning, by the user's
 choice. Always still shown in the carousel — the widget silences alarms, never
 hides data.
 _Avoid_: muted, ignored, hidden
