@@ -30,10 +30,10 @@ freedesktop Secret Service vault.
   provider's quota: the worst group of the live account that took the newest
   request, so the ring tracks the account the proxy is using now. The pill
   follows the provider that took the newest request. Picking a provider by
-  hand holds until requests move to another provider. A warning glyph when
-  any provider has an account that is not serving
-  — disabled, unavailable, or (when supported) in a non-active state — on any
-  page. An error
+  hand holds until requests move to another provider. A provider whose
+  accounts are all not serving — disabled, unavailable, or (when supported) in
+  a non-active state — gets a dot on its tab. The pill shows a warning glyph
+  only when every tracked provider has that dot. An error
   string on an account that is otherwise serving traffic (an unreadable quota
   meter upstream, say) is degraded telemetry: shown in the account detail,
   never a warning. Dimmed with `?` the

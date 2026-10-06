@@ -411,6 +411,28 @@ else
     fail "status:error account not flagged: $(jq -c '.providers' <<<"$OUT")"
 fi
 
+echo "=== Test 7c: a provider is a problem only when every account is troubled ==="
+setup
+jq '(.accounts[] | select(.account == "a***@example.com")).unavailable = true' \
+    "$FIXTURES/usage-multi-account.json" > "$TMP/one-troubled.json"
+export SHIM_BODY_FILE="$TMP/one-troubled.json"
+OUT="$(run_script)"
+if [ "$(jq -r '.providers[] | select(.provider == "acme") | .problem' <<<"$OUT")" = "false" ]; then
+    pass "one troubled account beside a serving one is not a provider problem"
+else
+    fail "acme flagged with a serving account left"
+fi
+setup
+jq '(.accounts[] | select(.provider == "acme")).unavailable = true' \
+    "$FIXTURES/usage-multi-account.json" > "$TMP/all-troubled.json"
+export SHIM_BODY_FILE="$TMP/all-troubled.json"
+OUT="$(run_script)"
+if [ "$(jq -r '.providers[] | select(.provider == "acme") | .problem' <<<"$OUT")" = "true" ]; then
+    pass "every account troubled raises the provider problem"
+else
+    fail "acme not flagged with all accounts troubled"
+fi
+
 echo "=== Test 8: 404 — the bridge requirement, stated exactly ==="
 setup
 export SHIM_STATUS=404
