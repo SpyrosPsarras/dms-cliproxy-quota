@@ -37,18 +37,32 @@ PluginComponent {
         id: detailLabel
         required property string name
         required property real tokens
-        required property real nameLimit
-        readonly property real tokenWidth: labelTokens.implicitWidth
+        required property real availableWidth
+        required property color swatchColor
+        required property bool muted
         spacing: Theme.spacingXS
 
+        Rectangle {
+            id: labelSwatch
+            anchors.verticalCenter: parent.verticalCenter
+            width: 9
+            height: width
+            color: detailLabel.swatchColor
+            opacity: detailLabel.muted ? 0.65 : 1
+        }
+
         DayDetailText {
-            width: Math.min(implicitWidth, detailLabel.nameLimit)
+            anchors.verticalCenter: parent.verticalCenter
+            width: Math.min(implicitWidth, Math.max(0, detailLabel.availableWidth - labelSwatch.width
+                                                    - labelTokens.implicitWidth - 2 * detailLabel.spacing))
             text: detailLabel.name
+            color: detailLabel.muted ? Theme.surfaceVariantText : Theme.surfaceText
             elide: Text.ElideRight
         }
 
         DayDetailText {
             id: labelTokens
+            anchors.verticalCenter: parent.verticalCenter
             text: root.formatTokens(detailLabel.tokens)
             color: Theme.surfaceVariantText
         }
@@ -304,59 +318,85 @@ PluginComponent {
         return clampedBoxes(total, parts).filter(part => part.value > 0 && (!selectedAccount || part.authIndex === selectedAccount));
     }
 
-    function spreadLabels(centres, rowHeight, height) {
-        var next = 0;
-        var rows = centres.map(centre => {
-            var y = Math.max(next, centre - rowHeight / 2);
-            next = y + rowHeight;
-            return y;
-        });
-        var latest = Math.max(height - rowHeight, (rows.length - 1) * rowHeight);
-        for (var i = rows.length - 1; i >= 0; i--) {
-            rows[i] = Math.min(rows[i], latest);
-            latest = rows[i] - rowHeight;
-        }
-        return rows;
-    }
+    readonly property int dayPartGap: 4
 
-    function dayDetail(allEntry, barHeight) {
+    function dayDetail(allEntry, rowHeight, minBarHeight) {
         var entry = viewEntry(allEntry);
         var total = dayTokens(entry);
-        var detail = { date: entry.date, total: total, requests: entry.requests, failed: entry.failed, slices: [], brackets: [] };
+        var parts = [];
+        var detail = { date: entry.date, total: total, requests: entry.requests, failed: entry.failed, height: minBarHeight, parts: parts };
         if (total <= 0)
             return detail;
 
-        var sliceHeight = 0;
-        for (var i = modelFamilies.length - 1; i >= 0; i--) {
-            var family = modelFamilies[i];
-            var tokens = familyTokens(entry, family);
-            if (tokens <= 0)
-                continue;
-            var h = Math.max(2, barHeight * tokens / total);
-            var name = family.versions.length === 1 ? family.versions[0].name : family.family;
-            detail.slices.push({ name: name, color: family.color, tokens: tokens, y: 0, h: h });
-            sliceHeight += h;
-        }
-        var minHeight = 2 * detail.slices.length;
-        var scale = sliceHeight > barHeight && sliceHeight > minHeight
-            ? Math.max(0, barHeight - minHeight) / (sliceHeight - minHeight) : 1;
-        var top = 0;
-        detail.slices.forEach(slice => {
-            slice.h = 2 + (slice.h - 2) * scale;
-            slice.y = top;
-            top += slice.h;
+        var accounts = showAccountSplit && hasAccountTokens(allEntry)
+            ? splitAccounts.filter(account => (!selectedAccount || account.authIndex === selectedAccount)
+                && accountTokens(allEntry, account.authIndex, null) > 0)
+            : [];
+        var families = modelFamilies.slice();
+        var knownIds = new Set();
+        families.forEach(family => family.ids.forEach(id => knownIds.add(id)));
+        accounts.forEach(account => {
+            Object.keys(allEntry.accounts[account.authIndex].tokens || {}).forEach(id => {
+                if (knownIds.has(id))
+                    return;
+                knownIds.add(id);
+                var model = parseModel(id);
+                var index = families.findIndex(family => family.family === model.family);
+                if (index < 0) {
+                    families.push({ family: model.family, ids: [id], versions: [model], color: familyPalette[families.length % familyPalette.length] });
+                } else {
+                    var family = families[index];
+                    families[index] = { family: family.family, ids: family.ids.concat(id), color: family.color,
+                        versions: family.versions.some(version => version.name === model.name) ? family.versions : family.versions.concat(model) };
+                }
+            });
         });
+        families.reverse();
 
-        if (showAccountSplit && hasAccountTokens(allEntry)) {
-            var bottom = barHeight;
-            accountBoxes(dayTokens(allEntry), [allEntry], null).forEach(box => {
-                var account = splitAccounts.find(account => account.authIndex === box.authIndex);
-                var h = Math.min(bottom, barHeight * box.value / total);
-                bottom -= h;
-                detail.brackets.push({ authIndex: box.authIndex, name: account.label || account.account,
-                    color: accountColors[box.authIndex], tokens: box.value, y: bottom, h: h });
+        function addPart(key, name, color, dashed, tokens, countFamily) {
+            var slices = families.map(family => ({
+                name: family.versions.length === 1 ? family.versions[0].name : family.family,
+                color: family.color, tokens: countFamily(family), y: 0, h: 0
+            })).filter(slice => slice.tokens > 0);
+            parts.push({ key: key, name: name, color: color, dashed: dashed, tokens: tokens, y: 0,
+                h: Math.max(2, slices.length) * rowHeight, slices: slices });
+        }
+
+        if (accounts.length === 0) {
+            addPart("day", "", "", false, total, family => familyTokens(entry, family));
+        } else {
+            var earlier = total - accounts.reduce((sum, account) => sum + accountTokens(allEntry, account.authIndex, null), 0);
+            if (!selectedAccount && earlier > 0) {
+                addPart("earlier", tr("earlier"), Theme.surfaceVariantText, true, earlier, family =>
+                    familyTokens(entry, family) - accounts.reduce((sum, account) => sum + accountTokens(allEntry, account.authIndex, family), 0));
+            }
+            accounts.slice().reverse().forEach(account => {
+                var key = account.authIndex;
+                addPart(key, account.label || account.account, accountColors[key], false, accountTokens(allEntry, key, null),
+                    family => accountTokens(allEntry, key, family));
             });
         }
+
+        var minHeight = parts.reduce((sum, part) => sum + part.h, (parts.length - 1) * dayPartGap);
+        detail.height = Math.max(minBarHeight, minHeight);
+        var extraHeight = detail.height - minHeight;
+        var partTokens = parts.reduce((sum, part) => sum + part.tokens, 0);
+        var top = 0;
+        parts.forEach(part => {
+            part.y = top;
+            part.h += extraHeight * part.tokens / partTokens;
+            top += part.h + dayPartGap;
+
+            var tokens = part.slices.reduce((sum, slice) => sum + slice.tokens, 0);
+            var proportionalHeight = part.slices.reduce((sum, slice) => sum + Math.max(0, part.h * slice.tokens / tokens - 2), 0);
+            var availableHeight = part.h - 2 * part.slices.length;
+            var y = 0;
+            part.slices.forEach(slice => {
+                slice.y = y;
+                slice.h = 2 + (proportionalHeight > 0 ? availableHeight * Math.max(0, part.h * slice.tokens / tokens - 2) / proportionalHeight : 0);
+                y += slice.h;
+            });
+        });
         return detail;
     }
 
@@ -1828,12 +1868,8 @@ PluginComponent {
             StyledRect {
                 id: dayOverlay
                 property Item day: null
-                readonly property var detail: day ? root.dayDetail(day.modelData, miniBar.height) : null
-                readonly property var brackets: detail ? detail.brackets.slice().reverse() : []
-                readonly property var slices: detail ? detail.slices : []
-                readonly property real rowHeight: dayFooter.implicitHeight
-                readonly property var accountRows: root.spreadLabels(brackets.map(part => part.y + part.h / 2), rowHeight, miniBar.height)
-                readonly property var modelRows: root.spreadLabels(slices.map(part => part.y + part.h / 2), rowHeight, miniBar.height)
+                readonly property var detail: day ? root.dayDetail(day.modelData, rowHeight, 120) : null
+                readonly property real rowHeight: Math.ceil(dayFontMetrics.height)
                 readonly property var position: {
                     if (!day)
                         return { x: 0, y: 0 };
@@ -1854,6 +1890,11 @@ PluginComponent {
                 color: Theme.surfaceContainerHighest ?? Theme.surfaceContainerHigh
                 border.width: 1
                 border.color: Theme.outline
+
+                FontMetrics {
+                    id: dayFontMetrics
+                    font: dayFooter.font
+                }
 
                 Column {
                     id: dayContents
@@ -1884,99 +1925,116 @@ PluginComponent {
                         }
                     }
 
-                    Row {
+                    Column {
                         id: dayBody
-                        spacing: Theme.spacingXS
-                        height: Math.max(miniBar.height,
-                                         (dayOverlay.accountRows[dayOverlay.accountRows.length - 1] ?? 0) + dayOverlay.rowHeight,
-                                         (dayOverlay.modelRows[dayOverlay.modelRows.length - 1] ?? 0) + dayOverlay.rowHeight)
+                        spacing: root.dayPartGap
+                        height: dayOverlay.detail?.height ?? 120
 
-                        Item {
-                            id: accountSide
-                            visible: dayOverlay.brackets.length > 0
-                            width: accountNames.width + Theme.spacingXS + bracketRail.width
-                            height: dayBody.height
+                        Repeater {
+                            model: dayOverlay.detail?.parts ?? []
 
-                            Item {
-                                id: accountNames
-                                x: width
-                                width: childrenRect.width
-                                height: parent.height
+                            delegate: Row {
+                                id: dayPart
+                                required property var modelData
+                                readonly property bool grouped: modelData.key !== "day"
+                                height: modelData.h
+                                spacing: Theme.spacingXS
 
-                                Repeater {
-                                    model: dayOverlay.brackets
+                                Column {
+                                    id: accountLabel
+                                    visible: dayPart.grouped
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: 110
 
-                                    delegate: DayDetailLabel {
-                                        required property var modelData
-                                        required property int index
-                                        name: modelData.name
-                                        tokens: modelData.tokens
-                                        nameLimit: 110
-                                        anchors.right: parent.left
-                                        y: dayOverlay.accountRows[index] ?? 0
+                                    DayDetailText {
+                                        width: parent.width
+                                        height: dayOverlay.rowHeight
+                                        horizontalAlignment: Text.AlignRight
+                                        verticalAlignment: Text.AlignVCenter
+                                        text: dayPart.modelData.name
+                                        color: dayPart.modelData.dashed ? Theme.surfaceVariantText : Theme.surfaceText
+                                        elide: Text.ElideRight
+                                    }
+
+                                    DayDetailText {
+                                        width: parent.width
+                                        height: dayOverlay.rowHeight
+                                        horizontalAlignment: Text.AlignRight
+                                        verticalAlignment: Text.AlignVCenter
+                                        text: root.formatTokens(dayPart.modelData.tokens)
+                                        color: Theme.surfaceVariantText
                                     }
                                 }
-                            }
 
-                            Item {
-                                id: bracketRail
-                                anchors.right: parent.right
-                                width: 8
-                                height: miniBar.height
-                                clip: true
+                                Item {
+                                    id: bracket
+                                    visible: dayPart.grouped
+                                    width: 8
+                                    height: dayPart.height
 
-                                Repeater {
-                                    model: dayOverlay.brackets
+                                    Repeater {
+                                        model: dayPart.modelData.dashed ? Math.ceil(bracket.height / 5) : 1
 
-                                    delegate: Rectangle {
-                                        required property var modelData
-                                        x: -border.width
-                                        y: modelData.y
-                                        width: bracketRail.width + border.width
-                                        height: modelData.h
-                                        color: "transparent"
-                                        border.width: 2
-                                        border.color: modelData.color
+                                        delegate: Rectangle {
+                                            required property int index
+                                            anchors.right: parent.right
+                                            y: index * 5
+                                            width: 2
+                                            height: dayPart.modelData.dashed ? Math.min(3, bracket.height - y) : bracket.height
+                                            color: dayPart.modelData.color
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        width: parent.width
+                                        height: 2
+                                        color: dayPart.modelData.color
+                                    }
+
+                                    Rectangle {
+                                        anchors.bottom: parent.bottom
+                                        width: parent.width
+                                        height: 2
+                                        color: dayPart.modelData.color
                                     }
                                 }
-                            }
-                        }
 
-                        Item {
-                            id: miniBar
-                            width: 18
-                            height: 120
+                                Item {
+                                    id: partBar
+                                    width: 18
+                                    height: dayPart.height
 
-                            Repeater {
-                                model: dayOverlay.slices
+                                    Repeater {
+                                        model: dayPart.modelData.slices
 
-                                delegate: Rectangle {
-                                    required property var modelData
-                                    width: miniBar.width
-                                    y: modelData.y
-                                    height: modelData.h
-                                    color: modelData.color
+                                        delegate: Rectangle {
+                                            required property var modelData
+                                            width: partBar.width
+                                            y: modelData.y
+                                            height: modelData.h
+                                            color: modelData.color
+                                        }
+                                    }
                                 }
-                            }
-                        }
 
-                        Item {
-                            width: childrenRect.width
-                            height: dayBody.height
+                                Column {
+                                    anchors.verticalCenter: parent.verticalCenter
 
-                            Repeater {
-                                model: dayOverlay.slices
+                                    Repeater {
+                                        model: dayPart.modelData.slices
 
-                                delegate: DayDetailLabel {
-                                    id: modelLabel
-                                    required property var modelData
-                                    required property int index
-                                    name: modelData.name
-                                    tokens: modelData.tokens
-                                    nameLimit: Math.max(0, popoutRoot.width - 2 * (Theme.spacingM + Theme.spacingS) - miniBar.width - dayBody.spacing
-                                                        - (accountSide.visible ? accountSide.width + dayBody.spacing : 0)
-                                                        - modelLabel.tokenWidth - modelLabel.spacing)
-                                    y: dayOverlay.modelRows[index] ?? 0
+                                        delegate: DayDetailLabel {
+                                            required property var modelData
+                                            height: dayOverlay.rowHeight
+                                            name: modelData.name
+                                            tokens: modelData.tokens
+                                            swatchColor: modelData.color
+                                            muted: dayPart.modelData.dashed
+                                            availableWidth: popoutRoot.width - 2 * (Theme.spacingM + Theme.spacingS)
+                                                - partBar.width - dayPart.spacing
+                                                - (dayPart.grouped ? accountLabel.width + bracket.width + 2 * dayPart.spacing : 0)
+                                        }
+                                    }
                                 }
                             }
                         }

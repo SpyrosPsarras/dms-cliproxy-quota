@@ -13,6 +13,7 @@ var strings = {
     "7 days": { fr: "7 jours", es: "7 días" },
     "requests": { fr: "requêtes", es: "solicitudes" },
     "failed": { fr: "échouées", es: "fallidas" },
+    "earlier": { fr: "plus tôt", es: "antes" },
     "on pace": { fr: "dans le rythme", es: "al ritmo" },
     "over pace": { fr: "au-dessus du rythme", es: "sobre el ritmo" },
     "under pace": { fr: "sous le rythme", es: "bajo el ritmo" },
