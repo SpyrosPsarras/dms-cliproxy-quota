@@ -5,6 +5,7 @@ node - "$ROOT/CliproxyQuotaWidget.qml" <<'NODE'
 const fs = require('fs');
 const vm = require('vm');
 const assert = require('node:assert/strict');
+const test = require('node:test');
 const source = fs.readFileSync(process.argv[2], 'utf8');
 const first = '1111111111111111';
 const second = '2222222222222222';
@@ -153,4 +154,71 @@ context.selectedAccount = second;
 vm.runInContext(opened[1], context);
 assert.equal(context.selectedAccount, '', 'reset the selection when the popout opens');
 console.log('PASS: account colours, split availability, filtered usage and family totals, account reset and clamped boxes');
+
+test('label rows stay near their centres without overlapping', () => {
+    runFunction('spreadLabels');
+    const spread = (centres, height = 120) => plain(context.spreadLabels(centres, 12, height));
+    const crowded = spread([10, 12, 14]);
+    assert.equal(crowded.length, 3);
+    assert.ok(crowded[0] >= 0 && crowded[2] <= 108);
+    assert.ok(crowded[1] - crowded[0] >= 12 && crowded[2] - crowded[1] >= 12);
+    assert.deepEqual(spread([60]), [54]);
+    assert.deepEqual(spread([2, 118]), [0, 108]);
+    assert.deepEqual(spread([108, 110, 118]), [84, 96, 108]);
+    assert.deepEqual(spread([2, 4, 6], 24), [0, 12, 24]);
+    assert.deepEqual(spread([]), []);
+});
+
+test('day detail follows the bar order and selected account', () => {
+    runFunction('dayDetail');
+    context.pillProvider = {accounts: [
+        {authIndex: second, label: 'Second label', account: 'Second account'},
+        {authIndex: first, account: 'First account'},
+    ]};
+    context.activity = [older, yesterday, today];
+    context.modelFamilies = [
+        {family: 'Small', color: '#123456', ids: ['small', 'small-2'], versions: [{name: 'Small 1'}, {name: 'Small 2'}]},
+        {family: 'Large', color: '#abcdef', ids: ['large'], versions: [{name: 'Large 1'}]},
+        {family: 'Absent', color: '#fedcba', ids: ['absent'], versions: [{name: 'Absent 1'}]},
+    ];
+    const detail = (entry, height) => plain(context.dayDetail(entry, height));
+    assert.deepEqual(detail(today, 100), {
+        date: todayDate, total: 200, requests: 9, failed: 2,
+        slices: [
+            {name: 'Large 1', color: '#abcdef', tokens: 80, y: 0, h: 40},
+            {name: 'Small', color: '#123456', tokens: 120, y: 40, h: 60},
+        ],
+        brackets: [
+            {authIndex: second, name: 'Second label', color: '#e6e1e5', tokens: 60, y: 70, h: 30},
+            {authIndex: first, name: 'First account', color: '#ff6ec7', tokens: 70, y: 35, h: 35},
+        ],
+    });
+
+    const oversubscribed = {...today, tokens: {small: 80, large: 20}};
+    assert.deepEqual(detail(oversubscribed, 100).brackets.map(({tokens, y, h}) => [tokens, y, h]),
+        [[60, 40, 60], [40, 0, 40]]);
+    assert.deepEqual(detail({...today, tokens: {small: 99, large: 1}}, 100).slices.map(({y, h}) => [y, h]),
+        [[0, 2], [2, 98]], 'a tiny slice remains visible within the mini bar');
+    assert.deepEqual(detail(older, 100).brackets, [], 'no brackets on a day without account tokens');
+
+    context.selectedAccount = second;
+    assert.deepEqual(detail(today, 120), {
+        date: todayDate, total: 60, requests: 3, failed: 1,
+        slices: [
+            {name: 'Large 1', color: '#abcdef', tokens: 40, y: 0, h: 80},
+            {name: 'Small', color: '#123456', tokens: 20, y: 80, h: 40},
+        ],
+        brackets: [{authIndex: second, name: 'Second label', color: '#e6e1e5', tokens: 60, y: 0, h: 120}],
+    });
+    assert.deepEqual(detail(older, 120), {
+        date: older.date, total: 0, requests: 0, failed: 0, slices: [], brackets: [],
+    });
+    context.selectedAccount = first;
+    assert.deepEqual(detail(oversubscribed, 70).brackets,
+        [{authIndex: first, name: 'First account', color: '#ff6ec7', tokens: 40, y: 30, h: 40}],
+        'the selected bracket keeps its All clamp but scales to the selected total');
+    context.selectedAccount = '';
+    context.pillProvider = {accounts: [context.pillProvider.accounts[0]]};
+    assert.deepEqual(detail(today, 100).brackets, [], 'no brackets when the account split is hidden');
+});
 NODE

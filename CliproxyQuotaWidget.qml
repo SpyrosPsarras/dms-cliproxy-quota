@@ -276,6 +276,62 @@ PluginComponent {
         return clampedBoxes(total, parts).filter(part => part.value > 0 && (!selectedAccount || part.authIndex === selectedAccount));
     }
 
+    function spreadLabels(centres, rowHeight, height) {
+        var next = 0;
+        var rows = centres.map(centre => {
+            var y = Math.max(next, centre - rowHeight / 2);
+            next = y + rowHeight;
+            return y;
+        });
+        var latest = Math.max(height - rowHeight, (rows.length - 1) * rowHeight);
+        for (var i = rows.length - 1; i >= 0; i--) {
+            rows[i] = Math.min(rows[i], latest);
+            latest = rows[i] - rowHeight;
+        }
+        return rows;
+    }
+
+    function dayDetail(allEntry, barHeight) {
+        var entry = viewEntry(allEntry);
+        var total = dayTokens(entry);
+        var detail = { date: entry.date, total: total, requests: entry.requests, failed: entry.failed, slices: [], brackets: [] };
+        if (total <= 0)
+            return detail;
+
+        var sliceHeight = 0;
+        for (var i = modelFamilies.length - 1; i >= 0; i--) {
+            var family = modelFamilies[i];
+            var tokens = familyTokens(entry, family);
+            if (tokens <= 0)
+                continue;
+            var h = Math.max(2, barHeight * tokens / total);
+            var name = family.versions.length === 1 ? family.versions[0].name : family.family;
+            detail.slices.push({ name: name, color: family.color, tokens: tokens, y: 0, h: h });
+            sliceHeight += h;
+        }
+        var minHeight = 2 * detail.slices.length;
+        var scale = sliceHeight > barHeight && sliceHeight > minHeight
+            ? Math.max(0, barHeight - minHeight) / (sliceHeight - minHeight) : 1;
+        var top = 0;
+        detail.slices.forEach(slice => {
+            slice.h = 2 + (slice.h - 2) * scale;
+            slice.y = top;
+            top += slice.h;
+        });
+
+        if (showAccountSplit && hasAccountTokens(allEntry)) {
+            var bottom = barHeight;
+            accountBoxes(dayTokens(allEntry), [allEntry], null).forEach(box => {
+                var account = splitAccounts.find(account => account.authIndex === box.authIndex);
+                var h = Math.min(bottom, barHeight * box.value / total);
+                bottom -= h;
+                detail.brackets.push({ authIndex: box.authIndex, name: account.label || account.account,
+                    color: accountColors[box.authIndex], tokens: box.value, y: bottom, h: h });
+            });
+        }
+        return detail;
+    }
+
     // Survives the refresh that rebuilds the family delegates.
     property var expandedFamilies: ({})
     function toggleFamily(name) {
