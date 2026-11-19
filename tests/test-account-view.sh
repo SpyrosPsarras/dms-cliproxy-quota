@@ -157,71 +157,103 @@ assert.equal(context.selectedAccount, '', 'reset the selection when the popout o
 assert.equal(context.dayOverlay.day, null, 'do not reopen with a stale day overlay');
 console.log('PASS: account colours, split availability, filtered usage and family totals, account reset and clamped boxes');
 
-test('label rows stay near their centres without overlapping', () => {
-    runFunction('spreadLabels');
-    const spread = (centres, height = 120) => plain(context.spreadLabels(centres, 12, height));
-    const crowded = spread([10, 12, 14]);
-    assert.equal(crowded.length, 3);
-    assert.ok(crowded[0] >= 0 && crowded[2] <= 108);
-    assert.ok(crowded[1] - crowded[0] >= 12 && crowded[2] - crowded[1] >= 12);
-    assert.deepEqual(spread([60]), [54]);
-    assert.deepEqual(spread([2, 118]), [0, 108]);
-    assert.deepEqual(spread([108, 110, 118]), [84, 96, 108]);
-    assert.deepEqual(spread([2, 4, 6], 24), [0, 12, 24]);
-    assert.deepEqual(spread([]), []);
+runFunction('parseModel');
+runFunction('dayDetail');
+const deployDay = {date: todayDate, requests: 9, failed: 2, tokens: {x: 500, y: 70, z: 8}, accounts: {
+    [first]: {requests: 4, failed: 0, tokens: {x: 31, y: 6}},
+    [second]: {requests: 3, failed: 1, tokens: {x: 5, z: 1}},
+}};
+context.pillProvider = {accounts: [
+    {authIndex: first, account: 'Account A'},
+    {authIndex: second, label: 'Label B', account: 'Account B'},
+]};
+context.activity = [deployDay];
+context.Theme.surfaceVariantText = '#aabbcc';
+context.dayPartGap = 4;
+context.familyPalette = ['#123456', '#abcdef', '#fedcba'];
+context.modelFamilies = [
+    {family: 'X', color: '#123456', ids: ['x', 'x-alt'], versions: [{name: 'X 1'}, {name: 'X 2'}]},
+    {family: 'Y', color: '#abcdef', ids: ['y'], versions: [{name: 'Y 1'}]},
+    {family: 'Z', color: '#fedcba', ids: ['z'], versions: [{name: 'Z 1'}]},
+];
+const detail = (entry = deployDay, minHeight = 120) => context.dayDetail(entry, 14, minHeight);
+const sliceLabels = part => plain(part.slices.map(({name, tokens}) => [name, tokens]));
+function checkLayout({parts, height}) {
+    let bottom = 0;
+    for (const part of parts) {
+        assert.ok(part.y >= bottom, 'parts must not overlap');
+        assert.ok(part.h >= Math.max(2, part.slices.length) * 14, 'labels must fit each part');
+        bottom = part.y + part.h;
+        let sliceBottom = 0;
+        for (const slice of part.slices) {
+            assert.ok(slice.y >= sliceBottom && slice.h >= 2, 'non-zero slices remain visible without overlap');
+            sliceBottom = slice.y + slice.h;
+        }
+        assert.ok(Math.abs(sliceBottom - part.h) < 1e-9, 'slices fill the part');
+    }
+    assert.ok(Math.abs(bottom - height) < 1e-9, 'parts and gaps fill the mini bar');
+}
+
+test('deploy day groups model slices by account and earlier usage', () => {
+    const result = detail();
+    assert.ok(Array.isArray(result.parts), 'day detail must return grouped parts');
+    const {date, total, requests, failed, height, parts} = result;
+    assert.deepEqual([date, total, requests, failed, height], [todayDate, 578, 9, 2, 120]);
+    assert.deepEqual(plain(parts.map(({key, name, color, dashed, tokens}) => [key, name, color, dashed, tokens])), [
+        ['earlier', 'earlier', '#aabbcc', true, 535],
+        [second, 'Label B', '#ff6ec7', false, 6],
+        [first, 'Account A', '#e6e1e5', false, 37],
+    ]);
+    assert.deepEqual(sliceLabels(parts[0]), [['Z 1', 7], ['Y 1', 64], ['X', 464]]);
+    assert.deepEqual(sliceLabels(parts[1]), [['Z 1', 1], ['X', 5]]);
+    assert.deepEqual(sliceLabels(parts[2]), [['Y 1', 6], ['X', 31]]);
+    assert.ok(parts[1].h < parts[2].h, 'equal row counts leave more extra height for the larger account');
+    checkLayout(result);
+    const grown = detail(deployDay, 80);
+    assert.ok(grown.height > 80, 'the bar must grow when labels cannot fit');
+    checkLayout(grown);
 });
 
-test('day detail follows the bar order and selected account', () => {
-    runFunction('dayDetail');
-    context.pillProvider = {accounts: [
-        {authIndex: second, label: 'Second label', account: 'Second account'},
-        {authIndex: first, account: 'First account'},
-    ]};
-    context.activity = [older, yesterday, today];
-    context.modelFamilies = [
-        {family: 'Small', color: '#123456', ids: ['small', 'small-2'], versions: [{name: 'Small 1'}, {name: 'Small 2'}]},
-        {family: 'Large', color: '#abcdef', ids: ['large'], versions: [{name: 'Large 1'}]},
-        {family: 'Absent', color: '#fedcba', ids: ['absent'], versions: [{name: 'Absent 1'}]},
-    ];
-    const detail = (entry, height) => plain(context.dayDetail(entry, height));
-    assert.deepEqual(detail(today, 100), {
-        date: todayDate, total: 200, requests: 9, failed: 2,
-        slices: [
-            {name: 'Large 1', color: '#abcdef', tokens: 80, y: 0, h: 40},
-            {name: 'Small', color: '#123456', tokens: 120, y: 40, h: 60},
-        ],
-        brackets: [
-            {authIndex: second, name: 'Second label', color: '#e6e1e5', tokens: 60, y: 70, h: 30},
-            {authIndex: first, name: 'First account', color: '#ff6ec7', tokens: 70, y: 35, h: 35},
-        ],
-    });
-
-    const oversubscribed = {...today, tokens: {small: 80, large: 20}};
-    assert.deepEqual(detail(oversubscribed, 100).brackets.map(({tokens, y, h}) => [tokens, y, h]),
-        [[60, 40, 60], [40, 0, 40]]);
-    assert.deepEqual(detail({...today, tokens: {small: 99, large: 1}}, 100).slices.map(({y, h}) => [y, h]),
-        [[0, 2], [2, 98]], 'a tiny slice remains visible within the mini bar');
-    assert.deepEqual(detail(older, 100).brackets, [], 'no brackets on a day without account tokens');
-
+test('a selected account gets the whole mini bar with its own totals', () => {
     context.selectedAccount = second;
-    assert.deepEqual(detail(today, 120), {
-        date: todayDate, total: 60, requests: 3, failed: 1,
-        slices: [
-            {name: 'Large 1', color: '#abcdef', tokens: 40, y: 0, h: 80},
-            {name: 'Small', color: '#123456', tokens: 20, y: 80, h: 40},
-        ],
-        brackets: [{authIndex: second, name: 'Second label', color: '#e6e1e5', tokens: 60, y: 0, h: 120}],
-    });
-    assert.deepEqual(detail(older, 120), {
-        date: older.date, total: 0, requests: 0, failed: 0, slices: [], brackets: [],
-    });
-    context.selectedAccount = first;
-    assert.deepEqual(detail(oversubscribed, 70).brackets,
-        [{authIndex: first, name: 'First account', color: '#ff6ec7', tokens: 40, y: 30, h: 40}],
-        'the selected bracket keeps its All clamp but scales to the selected total');
-    context.selectedAccount = '';
-    context.pillProvider = {accounts: [context.pillProvider.accounts[0]]};
-    assert.deepEqual(detail(today, 100).brackets, [], 'no brackets when the account split is hidden');
+    try {
+        const {total, requests, failed, parts, height} = detail();
+        assert.deepEqual([total, requests, failed], [6, 3, 1]);
+        assert.ok(Array.isArray(parts), 'day detail must return grouped parts');
+        assert.deepEqual(plain(parts.map(({key, tokens, y, h}) => [key, tokens, y, h])), [[second, 6, 0, 120]]);
+        assert.deepEqual(sliceLabels(parts[0]), [['Z 1', 1], ['X', 5]]);
+        checkLayout({parts, height});
+    } finally {
+        context.selectedAccount = '';
+    }
+});
+
+test('account sums above the day total do not squeeze out any account', () => {
+    const result = detail({...deployDay, accounts: {
+        [first]: {tokens: {x: 699}}, [second]: {tokens: {z: 1}},
+    }});
+    assert.ok(Array.isArray(result.parts), 'day detail must return grouped parts');
+    assert.deepEqual(plain(result.parts.map(({key, tokens}) => [key, tokens])), [[second, 1], [first, 699]]);
+    checkLayout(result);
+});
+
+test('a day without an account split has one unnamed part with every used family', () => {
+    const result = detail({...deployDay, accounts: undefined, tokens: {x: 577, y: 1}});
+    assert.ok(Array.isArray(result.parts), 'day detail must return grouped parts');
+    assert.deepEqual(plain(result.parts.map(({key, name, color, dashed}) => [key, name, color, dashed])), [['day', '', '', false]]);
+    assert.deepEqual(sliceLabels(result.parts[0]), [['Y 1', 1], ['X', 577]]);
+    checkLayout(result);
+});
+
+test('an account model missing from all day totals still gets a finite slice', () => {
+    const result = detail({...deployDay, accounts: {
+        [first]: {tokens: {x: 31, z: 1, w: 2}},
+        [second]: {tokens: {x: 5}},
+    }, tokens: {x: 508, y: 70}});
+    assert.ok(Array.isArray(result.parts), 'day detail must return grouped parts');
+    const part = result.parts.find(({key}) => key === first);
+    assert.deepEqual(sliceLabels(part), [['W', 2], ['Z 1', 1], ['X', 31]]);
+    checkLayout(result);
 });
 
 test('day overlay centers below the hovered day and clamps to the side margins', () => {
