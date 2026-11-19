@@ -120,8 +120,15 @@ PluginComponent {
     }
 
     readonly property bool showAccountSplit: {
-        return Object.keys(accountColors).length >= 2 && activity.some(entry =>
-            Object.values(entry.accounts || {}).some(account => Object.keys(account.tokens || {}).length > 0));
+        return Object.keys(accountColors).length >= 2 && activity.some(entry => hasAccountTokens(entry));
+    }
+
+    function hasAccountTokens(entry) {
+        return Object.values(entry.accounts || {}).some(account => Object.keys(account.tokens || {}).length > 0);
+    }
+
+    function cardAccountColor(authIndex) {
+        return showAccountSplit ? accountColors[authIndex] || "" : "";
     }
 
     property string selectedAccount: ""
@@ -253,10 +260,10 @@ PluginComponent {
     }
 
     function clampedBoxes(total, parts) {
-        var remaining = Math.max(0, total);
+        var left = Math.max(0, total);
         return parts.map(part => {
-            var value = Math.max(0, Math.min(remaining, part.value));
-            remaining -= value;
+            var value = Math.max(0, Math.min(left, part.value));
+            left -= value;
             return { authIndex: part.authIndex, value: value };
         });
     }
@@ -1030,8 +1037,8 @@ PluginComponent {
                                         width: chipContent.width + 2 * Theme.spacingS
                                         radius: height / 2
                                         color: selected ? Theme.withAlpha(Theme.primary, 0.16) : Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
-                                        border.width: 1
-                                        border.color: selected ? Theme.withAlpha(Theme.primary, 0.45) : activeFocus ? Theme.primary : Theme.outlineLight
+                                        border.width: activeFocus ? 2 : 1
+                                        border.color: activeFocus ? Theme.primary : selected ? Theme.withAlpha(Theme.primary, 0.45) : Theme.outlineLight
                                         activeFocusOnTab: true
                                         Accessible.role: Accessible.RadioButton
                                         Accessible.name: chipLabel
@@ -1039,6 +1046,8 @@ PluginComponent {
                                         Accessible.checked: selected
                                         Accessible.onPressAction: root.selectedAccount = modelData.authIndex
                                         Keys.onSpacePressed: root.selectedAccount = modelData.authIndex
+                                        Keys.onReturnPressed: root.selectedAccount = modelData.authIndex
+                                        Keys.onEnterPressed: root.selectedAccount = modelData.authIndex
                                         onActiveFocusChanged: {
                                             if (activeFocus)
                                                 accountScroll.contentX = Math.max(x + width - accountScroll.width, Math.min(x, accountScroll.contentX));
@@ -1179,7 +1188,7 @@ PluginComponent {
                                 var req = entry.requests + " " + root.tr("requests");
                                 if (entry.failed > 0) req += " \u00b7 " + entry.failed + " " + root.tr("failed");
                                 lines.push(req);
-                                if (root.showAccountSplit && Object.values(allEntry.accounts || {}).some(account => Object.keys(account.tokens || {}).length > 0)) {
+                                if (root.showAccountSplit && root.hasAccountTokens(allEntry)) {
                                     root.splitAccounts.forEach(account => {
                                         lines.push((account.label || account.account) + "  " + root.formatTokens(root.accountTokens(allEntry, account.authIndex, null)));
                                     });
@@ -1486,7 +1495,7 @@ PluginComponent {
 
                                 readonly property bool healthy: !modelData.disabled && !modelData.unavailable
                                                                 && (modelData.status === "active" || modelData.supported === false)
-                                readonly property var accountColor: root.accountColors[modelData.authIndex]
+                                readonly property var accountColor: root.cardAccountColor(modelData.authIndex)
                                 property bool expanded: (healthy && !modelData.noQuota) || !!modelData.error
 
                                 width: accountsColumn.width - 2 * Theme.spacingM

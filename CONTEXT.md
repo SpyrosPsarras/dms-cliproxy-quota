@@ -17,7 +17,8 @@ _Avoid_: auth file, subscription, user
 
 **Account colour**:
 Colour assigned by account list order and shared by the card border, chip swatch,
-and usage outlines.
+and usage outlines. It applies only to providers with at least two accounts
+and only after per-account token data arrives.
 
 **Live account**:
 An account that is not `disabled`, not `unavailable`, is `supported`, and

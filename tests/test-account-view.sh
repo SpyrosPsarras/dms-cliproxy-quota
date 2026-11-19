@@ -74,6 +74,13 @@ assert.deepEqual(plain(context.accountPalette), ['#e6e1e5', '#ff6ec7', '#00e5ff'
 context.Theme.surfaceText = '#fafafa';
 assert.equal(vm.runInContext(palette[1], context)[0], context.Theme.surfaceText);
 Object.defineProperty(context, 'accountColors', {get: () => block('accountColors')});
+Object.defineProperty(context, 'showAccountSplit', {get: () => block('showAccountSplit')});
+runFunction('hasAccountTokens');
+runFunction('cardAccountColor');
+const cardColorBinding = source.match(/^                                readonly property var accountColor: (.+)$/m);
+assert.ok(cardColorBinding, 'account card colour binding is missing');
+context.modelData = accounts[0];
+const cardColor = () => vm.runInContext(cardColorBinding[1], context);
 context.pillProvider = {accounts: [accounts[0]]};
 assert.deepEqual(plain(context.accountColors), {});
 assert.equal(block('showAccountSplit'), false);
@@ -83,6 +90,7 @@ assert.deepEqual(plain(context.accountColors), {
 });
 assert.notEqual(context.accountColors[first], context.accountColors[second]);
 assert.equal(block('showAccountSplit'), true);
+assert.equal(cardColor(), '#ff6ec7', 'account cards use their palette colour when the split is available');
 context.activity = [older];
 assert.equal(block('showAccountSplit'), false);
 context.activity = [older, {...today, accounts: {
@@ -90,6 +98,7 @@ context.activity = [older, {...today, accounts: {
     [second]: {requests: 3, failed: 1, tokens: {}},
 }}];
 assert.equal(block('showAccountSplit'), false, 'old bridges report account requests but no account tokens');
+assert.equal(cardColor(), '', 'account cards use the legacy border when the bridge supplies no account tokens');
 
 runFunction('accountTokens');
 assert.equal(context.accountTokens(today, second, null), 60);

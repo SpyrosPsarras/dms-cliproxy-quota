@@ -2,7 +2,7 @@
 
 ## Intent
 
-A provider can have more than one account (subscription). Token
+A provider can have more than one account. Token
 Consumption, Daily Activity and Models add up all of them, and nothing shows
 which account used how much. The owner wants to see it at a glance, in a
 screenshot, without reading numbers: which part of each bar came from which

@@ -55,7 +55,8 @@ freedesktop Secret Service vault.
   local day. When a counter drops between two polls the plugin reads it as a
   restart and counts the new value as traffic since the restart, so a restart
   costs at most one poll interval of history instead of the whole day. Models are
-  data: whatever the bridge reports renders, nothing is named in code.
+  data: whatever the bridge reports renders, nothing is named in code. The
+  per-account split requires pi-bridge 0.12.0 or newer.
 - **Providers are data, not code.** Group ids, labels, and providers come
   from the bridge and are never used in rendering or aggregation decisions;
   the one exception is picking an icon, and an unknown provider gets a
