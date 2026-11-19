@@ -150,9 +150,11 @@ assert.equal(context.selectedAccount, '', 'reset the selection when the provider
 const opened = source.match(/^                function onOpened\(\) \{([\s\S]*?)\n                \}/m);
 assert.ok(opened, 'account selection must react to opening the popout');
 context.Qt = {callLater: () => {}};
+context.dayOverlay = {day: {modelData: today}};
 context.selectedAccount = second;
 vm.runInContext(opened[1], context);
 assert.equal(context.selectedAccount, '', 'reset the selection when the popout opens');
+assert.equal(context.dayOverlay.day, null, 'do not reopen with a stale day overlay');
 console.log('PASS: account colours, split availability, filtered usage and family totals, account reset and clamped boxes');
 
 test('label rows stay near their centres without overlapping', () => {
@@ -220,5 +222,14 @@ test('day detail follows the bar order and selected account', () => {
     context.selectedAccount = '';
     context.pillProvider = {accounts: [context.pillProvider.accounts[0]]};
     assert.deepEqual(detail(today, 100).brackets, [], 'no brackets when the account split is hidden');
+});
+
+test('day overlay prefers the right and stays within the popout', () => {
+    runFunction('dayOverlayPosition');
+    const position = (left, right, top, width = 160) =>
+        plain(context.dayOverlayPosition(left, right, top, width, 180, 420, 620, 8));
+    assert.deepEqual(position(40, 82, 240), {x: 90, y: 240});
+    assert.deepEqual(position(330, 380, 500), {x: 162, y: 440});
+    assert.deepEqual(position(180, 232, -15, 260), {x: 0, y: 0});
 });
 NODE
