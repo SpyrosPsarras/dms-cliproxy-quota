@@ -56,6 +56,8 @@
 
 ### Task 2: Hover overlay
 
+> Changed during execution: after a live render the overlay opens below the bars row, centred on the hovered day and clamped to the content margins, with a `Theme.outline` border and a highlight on the hovered bar (see the spec's "Where" bullet).
+
 **Files:**
 - Modify: `CliproxyQuotaWidget.qml` (Daily Activity card: replace `dayTip.show(...)` for the token case; add the overlay Item inside `popoutRoot`)
 
