@@ -8,6 +8,24 @@ import "translations.js" as Tr
 PluginComponent {
     id: root
 
+    component AccountOutline: Rectangle {
+        required property color accountColor
+
+        radius: 3
+        color: "transparent"
+        border.width: 2
+        border.color: accountColor
+
+        Rectangle {
+            anchors.fill: parent
+            anchors.margins: 2
+            radius: 1
+            color: "transparent"
+            border.width: 1
+            border.color: Theme.surfaceContainer
+        }
+    }
+
     property string lang: (SessionData.locale || Qt.locale().name).split(/[_-]/)[0]
     function tr(key) {
         return Tr.tr(key, lang);
@@ -1209,6 +1227,7 @@ PluginComponent {
                                             Item {
                                                 width: parent.width
                                                 height: 64
+                                                clip: true
 
                                                 Column {
                                                     visible: activityCard.hasTokens
@@ -1248,14 +1267,11 @@ PluginComponent {
                                                         model: root.showAccountSplit && activityCard.maxValue > 0
                                                                ? root.accountBoxes(root.dayTokens(dayColumn.modelData), [dayColumn.modelData], null).reverse() : []
 
-                                                        delegate: Rectangle {
+                                                        delegate: AccountOutline {
                                                             required property var modelData
                                                             width: Math.min(36, dayColumn.width - Theme.spacingS)
                                                             height: Math.max(3, 64 * modelData.value / activityCard.maxValue)
-                                                            radius: 3
-                                                            color: "transparent"
-                                                            border.width: 2
-                                                            border.color: root.accountColors[modelData.authIndex]
+                                                            accountColor: root.accountColors[modelData.authIndex]
                                                         }
                                                     }
                                                 }
@@ -1359,6 +1375,7 @@ PluginComponent {
                                             height: root.showAccountSplit ? 10 : 6
                                             radius: 3
                                             color: Theme.surfaceVariant
+                                            clip: true
 
                                             Rectangle {
                                                 width: familyBar.width * familyRow.viewTotal / root.modelFamilies[0].total
@@ -1372,14 +1389,11 @@ PluginComponent {
                                                     model: root.showAccountSplit
                                                            ? root.accountBoxes(familyRow.modelData.total, root.activity, familyRow.modelData) : []
 
-                                                    delegate: Rectangle {
+                                                    delegate: AccountOutline {
                                                         required property var modelData
                                                         width: Math.max(3, familyBar.width * modelData.value / root.modelFamilies[0].total)
                                                         height: familyBar.height
-                                                        radius: 3
-                                                        color: "transparent"
-                                                        border.width: 2
-                                                        border.color: root.accountColors[modelData.authIndex]
+                                                        accountColor: root.accountColors[modelData.authIndex]
                                                     }
                                                 }
                                             }
