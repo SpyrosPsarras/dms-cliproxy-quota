@@ -224,12 +224,14 @@ test('day detail follows the bar order and selected account', () => {
     assert.deepEqual(detail(today, 100).brackets, [], 'no brackets when the account split is hidden');
 });
 
-test('day overlay prefers the right and stays within the popout', () => {
+test('day overlay prefers the right and stays within the card margins', () => {
     runFunction('dayOverlayPosition');
     const position = (left, right, top, width = 160) =>
-        plain(context.dayOverlayPosition(left, right, top, width, 180, 420, 620, 8));
+        plain(context.dayOverlayPosition(left, right, top, width, 180, 420, 620, 8, 16));
     assert.deepEqual(position(40, 82, 240), {x: 90, y: 240});
     assert.deepEqual(position(330, 380, 500), {x: 162, y: 440});
-    assert.deepEqual(position(180, 232, -15, 260), {x: 0, y: 0});
+    assert.deepEqual(position(180, 232, -15, 260), {x: 16, y: 0});
+    assert.deepEqual(position(230, 245, 240), {x: 62, y: 240});
+    assert.deepEqual(position(418, 430, 240), {x: 244, y: 240});
 });
 NODE

@@ -360,11 +360,12 @@ PluginComponent {
         return detail;
     }
 
-    function dayOverlayPosition(left, right, top, width, height, boundsWidth, boundsHeight, gap) {
+    function dayOverlayPosition(left, right, top, width, height, boundsWidth, boundsHeight, gap, inset) {
         var rightX = right + gap;
-        var x = rightX + width <= boundsWidth ? rightX : left - gap - width;
+        var maxX = boundsWidth - inset - width;
+        var x = rightX <= maxX ? rightX : left - gap - width;
         return {
-            x: Math.max(0, Math.min(x, boundsWidth - width)),
+            x: Math.max(inset, Math.min(x, maxX)),
             y: Math.max(0, Math.min(top, boundsHeight - height))
         };
     }
@@ -1360,6 +1361,17 @@ PluginComponent {
                                                     }
                                                 }
 
+                                                Rectangle {
+                                                    visible: dayOverlay.visible && dayOverlay.day === dayColumn
+                                                    anchors.horizontalCenter: parent.horizontalCenter
+                                                    width: Math.min(36, parent.width - Theme.spacingS) + 4
+                                                    height: parent.height
+                                                    radius: 4
+                                                    color: "transparent"
+                                                    border.width: 1
+                                                    border.color: Theme.surfaceText
+                                                }
+
                                                 MouseArea {
                                                     anchors.fill: parent
                                                     hoverEnabled: true
@@ -1830,19 +1842,19 @@ PluginComponent {
                     var left = day.mapToItem(popoutRoot, 0, 0).x;
                     var top = popoutColumn.y + activityScroll.y + accountsColumn.y + activityCard.y - activityScroll.contentY;
                     return root.dayOverlayPosition(left, left + day.width, top, width, height,
-                                                   popoutRoot.width, popoutRoot.height, Theme.spacingS);
+                                                   popoutRoot.width, popoutRoot.height, Theme.spacingS, Theme.spacingM);
                 }
 
                 z: 10
                 visible: !!day && day.visible && activityCard.hasTokens
                 x: position.x
                 y: position.y
-                width: Math.min(popoutRoot.width, Math.max(dayHeader.implicitWidth, dayBody.implicitWidth, dayFooter.implicitWidth) + 2 * Theme.spacingS)
+                width: Math.min(popoutRoot.width - 2 * Theme.spacingM, Math.max(dayHeader.implicitWidth, dayBody.implicitWidth, dayFooter.implicitWidth) + 2 * Theme.spacingS)
                 height: dayContents.height + 2 * Theme.spacingS
                 radius: Theme.cornerRadius
-                color: Theme.surfaceContainerHigh
+                color: Theme.surfaceContainerHighest ?? Theme.surfaceContainerHigh
                 border.width: 1
-                border.color: Theme.outlineLight
+                border.color: Theme.outline
 
                 Column {
                     id: dayContents
@@ -1888,6 +1900,7 @@ PluginComponent {
 
                             Item {
                                 id: accountNames
+                                x: width
                                 width: childrenRect.width
                                 height: parent.height
 
@@ -1900,6 +1913,7 @@ PluginComponent {
                                         name: modelData.name
                                         tokens: modelData.tokens
                                         nameLimit: 110
+                                        anchors.right: parent.left
                                         y: dayOverlay.accountRows[index] ?? 0
                                     }
                                 }
@@ -1960,7 +1974,7 @@ PluginComponent {
                                     required property int index
                                     name: modelData.name
                                     tokens: modelData.tokens
-                                    nameLimit: Math.max(0, popoutRoot.width - 2 * Theme.spacingS - miniBar.width - dayBody.spacing
+                                    nameLimit: Math.max(0, popoutRoot.width - 2 * (Theme.spacingM + Theme.spacingS) - miniBar.width - dayBody.spacing
                                                         - (accountSide.visible ? accountSide.width + dayBody.spacing : 0)
                                                         - modelLabel.tokenWidth - modelLabel.spacing)
                                     y: dayOverlay.modelRows[index] ?? 0
