@@ -26,6 +26,34 @@ PluginComponent {
         }
     }
 
+    component DayDetailText: StyledText {
+        font.pixelSize: Theme.fontSizeSmall - 1
+        font.features: ({ tnum: 1 })
+        textFormat: Text.PlainText
+        color: Theme.surfaceText
+    }
+
+    component DayDetailLabel: Row {
+        id: detailLabel
+        required property string name
+        required property real tokens
+        required property real nameLimit
+        readonly property real tokenWidth: labelTokens.implicitWidth
+        spacing: Theme.spacingXS
+
+        DayDetailText {
+            width: Math.min(implicitWidth, detailLabel.nameLimit)
+            text: detailLabel.name
+            elide: Text.ElideRight
+        }
+
+        DayDetailText {
+            id: labelTokens
+            text: root.formatTokens(detailLabel.tokens)
+            color: Theme.surfaceVariantText
+        }
+    }
+
     property string lang: (SessionData.locale || Qt.locale().name).split(/[_-]/)[0]
     function tr(key) {
         return Tr.tr(key, lang);
@@ -274,6 +302,70 @@ PluginComponent {
             value: entries.reduce((sum, entry) => sum + accountTokens(entry, account.authIndex, family), 0)
         }));
         return clampedBoxes(total, parts).filter(part => part.value > 0 && (!selectedAccount || part.authIndex === selectedAccount));
+    }
+
+    function spreadLabels(centres, rowHeight, height) {
+        var next = 0;
+        var rows = centres.map(centre => {
+            var y = Math.max(next, centre - rowHeight / 2);
+            next = y + rowHeight;
+            return y;
+        });
+        var latest = Math.max(height - rowHeight, (rows.length - 1) * rowHeight);
+        for (var i = rows.length - 1; i >= 0; i--) {
+            rows[i] = Math.min(rows[i], latest);
+            latest = rows[i] - rowHeight;
+        }
+        return rows;
+    }
+
+    function dayDetail(allEntry, barHeight) {
+        var entry = viewEntry(allEntry);
+        var total = dayTokens(entry);
+        var detail = { date: entry.date, total: total, requests: entry.requests, failed: entry.failed, slices: [], brackets: [] };
+        if (total <= 0)
+            return detail;
+
+        var sliceHeight = 0;
+        for (var i = modelFamilies.length - 1; i >= 0; i--) {
+            var family = modelFamilies[i];
+            var tokens = familyTokens(entry, family);
+            if (tokens <= 0)
+                continue;
+            var h = Math.max(2, barHeight * tokens / total);
+            var name = family.versions.length === 1 ? family.versions[0].name : family.family;
+            detail.slices.push({ name: name, color: family.color, tokens: tokens, y: 0, h: h });
+            sliceHeight += h;
+        }
+        var minHeight = 2 * detail.slices.length;
+        var scale = sliceHeight > barHeight && sliceHeight > minHeight
+            ? Math.max(0, barHeight - minHeight) / (sliceHeight - minHeight) : 1;
+        var top = 0;
+        detail.slices.forEach(slice => {
+            slice.h = 2 + (slice.h - 2) * scale;
+            slice.y = top;
+            top += slice.h;
+        });
+
+        if (showAccountSplit && hasAccountTokens(allEntry)) {
+            var bottom = barHeight;
+            accountBoxes(dayTokens(allEntry), [allEntry], null).forEach(box => {
+                var account = splitAccounts.find(account => account.authIndex === box.authIndex);
+                var h = Math.min(bottom, barHeight * box.value / total);
+                bottom -= h;
+                detail.brackets.push({ authIndex: box.authIndex, name: account.label || account.account,
+                    color: accountColors[box.authIndex], tokens: box.value, y: bottom, h: h });
+            });
+        }
+        return detail;
+    }
+
+    function dayOverlayPosition(left, right, rowBottom, width, height, boundsWidth, boundsHeight, gap, inset) {
+        var centeredX = (left + right - width) / 2;
+        return {
+            x: Math.max(inset, Math.min(centeredX, boundsWidth - inset - width)),
+            y: Math.max(0, Math.min(rowBottom + gap, boundsHeight - height))
+        };
     }
 
     // Survives the refresh that rebuilds the family delegates.
@@ -623,6 +715,7 @@ PluginComponent {
                 target: popoutRoot.parentPopout
                 function onOpened() {
                     root.selectedAccount = "";
+                    dayOverlay.day = null;
                     Qt.callLater(() => popoutRoot.forceActiveFocus());
                 }
             }
@@ -870,6 +963,7 @@ PluginComponent {
                 }
 
                 DankFlickable {
+                    id: activityScroll
                     width: parent.width
                     height: Math.max(140, root.popoutHeight - popoutRoot.headerHeight)
                     contentHeight: accountsColumn.height
@@ -1172,29 +1266,9 @@ PluginComponent {
                                 return hasTokens ? root.dayTokens(entry) : entry.requests;
                             }
 
-                            function dayTooltip(allEntry) {
-                                var entry = root.viewEntry(allEntry);
-                                var byName = {};
-                                var names = [];
-                                var t = entry.tokens || {};
-                                for (var i = 0; i < root.modelTotals.length; i++) {
-                                    var v = t[root.modelTotals[i].model] || 0;
-                                    if (v <= 0) continue;
-                                    var n = root.parseModel(root.modelTotals[i].model).name;
-                                    if (!(n in byName)) { byName[n] = 0; names.push(n); }
-                                    byName[n] += v;
-                                }
-                                var lines = names.map(n => n + "  " + root.formatTokens(byName[n]));
-                                var req = entry.requests + " " + root.tr("requests");
-                                if (entry.failed > 0) req += " \u00b7 " + entry.failed + " " + root.tr("failed");
-                                lines.push(req);
-                                if (root.showAccountSplit && root.hasAccountTokens(allEntry)) {
-                                    root.splitAccounts.forEach(account => {
-                                        lines.push((account.label || account.account) + "  " + root.formatTokens(root.accountTokens(allEntry, account.authIndex, null)));
-                                    });
-                                }
-                                // DankTooltipV2 shows one line and elides the rest.
-                                return lines.join("  \u00b7  ");
+                            function dayTooltip(entry) {
+                                var requests = entry.requests + " " + root.tr("requests");
+                                return requests + (entry.failed > 0 ? " \u00b7 " + entry.failed + " " + root.tr("failed") : "");
                             }
 
                             Column {
@@ -1285,13 +1359,32 @@ PluginComponent {
                                                     }
                                                 }
 
+                                                Rectangle {
+                                                    visible: dayOverlay.visible && dayOverlay.day === dayColumn
+                                                    anchors.horizontalCenter: parent.horizontalCenter
+                                                    width: Math.min(36, parent.width - Theme.spacingS) + 4
+                                                    height: parent.height
+                                                    radius: 4
+                                                    color: "transparent"
+                                                    border.width: 1
+                                                    border.color: Theme.surfaceText
+                                                }
+
                                                 MouseArea {
-                                                    id: dayHover
                                                     anchors.fill: parent
                                                     hoverEnabled: true
                                                     acceptedButtons: Qt.NoButton
-                                                    onEntered: dayTip.show(activityCard.dayTooltip(dayColumn.modelData), parent, 0, 0, "top")
-                                                    onExited: dayTip.hide()
+                                                    onEntered: {
+                                                        if (activityCard.hasTokens)
+                                                            dayOverlay.day = dayColumn;
+                                                        else
+                                                            dayTip.show(activityCard.dayTooltip(dayColumn.entry), parent, 0, 0, "top");
+                                                    }
+                                                    onExited: {
+                                                        if (dayOverlay.day === dayColumn)
+                                                            dayOverlay.day = null;
+                                                        dayTip.hide();
+                                                    }
                                                 }
                                             }
 
@@ -1728,6 +1821,171 @@ PluginComponent {
                                 }
                             }
                         }
+                    }
+                }
+            }
+
+            StyledRect {
+                id: dayOverlay
+                property Item day: null
+                readonly property var detail: day ? root.dayDetail(day.modelData, miniBar.height) : null
+                readonly property var brackets: detail ? detail.brackets.slice().reverse() : []
+                readonly property var slices: detail ? detail.slices : []
+                readonly property real rowHeight: dayFooter.implicitHeight
+                readonly property var accountRows: root.spreadLabels(brackets.map(part => part.y + part.h / 2), rowHeight, miniBar.height)
+                readonly property var modelRows: root.spreadLabels(slices.map(part => part.y + part.h / 2), rowHeight, miniBar.height)
+                readonly property var position: {
+                    if (!day)
+                        return { x: 0, y: 0 };
+                    var left = day.mapToItem(popoutRoot, 0, 0).x;
+                    var rowBottom = popoutColumn.y + activityScroll.y - activityScroll.contentY
+                        + accountsColumn.y + activityCard.y + activityContent.y + barsRow.y + barsRow.height;
+                    return root.dayOverlayPosition(left, left + day.width, rowBottom, width, height,
+                                                   popoutRoot.width, popoutRoot.height, Theme.spacingS, Theme.spacingM);
+                }
+
+                z: 10
+                visible: !!day && day.visible && activityCard.hasTokens
+                x: position.x
+                y: position.y
+                width: Math.min(popoutRoot.width - 2 * Theme.spacingM, Math.max(dayHeader.implicitWidth, dayBody.implicitWidth, dayFooter.implicitWidth) + 2 * Theme.spacingS)
+                height: dayContents.height + 2 * Theme.spacingS
+                radius: Theme.cornerRadius
+                color: Theme.surfaceContainerHighest ?? Theme.surfaceContainerHigh
+                border.width: 1
+                border.color: Theme.outline
+
+                Column {
+                    id: dayContents
+                    x: Theme.spacingS
+                    y: Theme.spacingS
+                    width: parent.width - 2 * Theme.spacingS
+                    spacing: Theme.spacingS
+
+                    Item {
+                        id: dayHeader
+                        width: parent.width
+                        height: Math.max(dayDate.implicitHeight, allTokens.implicitHeight)
+                        implicitWidth: dayDate.implicitWidth + Theme.spacingS + allTokens.implicitWidth
+
+                        DayDetailText {
+                            id: dayDate
+                            text: {
+                                var date = new Date((dayOverlay.detail?.date || "") + "T00:00:00");
+                                return isNaN(date.getTime()) ? "" : date.toLocaleDateString(Qt.locale(), "ddd d MMM");
+                            }
+                        }
+
+                        DayDetailText {
+                            id: allTokens
+                            anchors.right: parent.right
+                            text: root.formatTokens(dayOverlay.detail?.total || 0)
+                            font.weight: Font.Medium
+                        }
+                    }
+
+                    Row {
+                        id: dayBody
+                        spacing: Theme.spacingXS
+                        height: Math.max(miniBar.height,
+                                         (dayOverlay.accountRows[dayOverlay.accountRows.length - 1] ?? 0) + dayOverlay.rowHeight,
+                                         (dayOverlay.modelRows[dayOverlay.modelRows.length - 1] ?? 0) + dayOverlay.rowHeight)
+
+                        Item {
+                            id: accountSide
+                            visible: dayOverlay.brackets.length > 0
+                            width: accountNames.width + Theme.spacingXS + bracketRail.width
+                            height: dayBody.height
+
+                            Item {
+                                id: accountNames
+                                x: width
+                                width: childrenRect.width
+                                height: parent.height
+
+                                Repeater {
+                                    model: dayOverlay.brackets
+
+                                    delegate: DayDetailLabel {
+                                        required property var modelData
+                                        required property int index
+                                        name: modelData.name
+                                        tokens: modelData.tokens
+                                        nameLimit: 110
+                                        anchors.right: parent.left
+                                        y: dayOverlay.accountRows[index] ?? 0
+                                    }
+                                }
+                            }
+
+                            Item {
+                                id: bracketRail
+                                anchors.right: parent.right
+                                width: 8
+                                height: miniBar.height
+                                clip: true
+
+                                Repeater {
+                                    model: dayOverlay.brackets
+
+                                    delegate: Rectangle {
+                                        required property var modelData
+                                        x: -border.width
+                                        y: modelData.y
+                                        width: bracketRail.width + border.width
+                                        height: modelData.h
+                                        color: "transparent"
+                                        border.width: 2
+                                        border.color: modelData.color
+                                    }
+                                }
+                            }
+                        }
+
+                        Item {
+                            id: miniBar
+                            width: 18
+                            height: 120
+
+                            Repeater {
+                                model: dayOverlay.slices
+
+                                delegate: Rectangle {
+                                    required property var modelData
+                                    width: miniBar.width
+                                    y: modelData.y
+                                    height: modelData.h
+                                    color: modelData.color
+                                }
+                            }
+                        }
+
+                        Item {
+                            width: childrenRect.width
+                            height: dayBody.height
+
+                            Repeater {
+                                model: dayOverlay.slices
+
+                                delegate: DayDetailLabel {
+                                    id: modelLabel
+                                    required property var modelData
+                                    required property int index
+                                    name: modelData.name
+                                    tokens: modelData.tokens
+                                    nameLimit: Math.max(0, popoutRoot.width - 2 * (Theme.spacingM + Theme.spacingS) - miniBar.width - dayBody.spacing
+                                                        - (accountSide.visible ? accountSide.width + dayBody.spacing : 0)
+                                                        - modelLabel.tokenWidth - modelLabel.spacing)
+                                    y: dayOverlay.modelRows[index] ?? 0
+                                }
+                            }
+                        }
+                    }
+
+                    DayDetailText {
+                        id: dayFooter
+                        text: dayOverlay.detail ? activityCard.dayTooltip(dayOverlay.detail) : ""
+                        color: Theme.surfaceVariantText
                     }
                 }
             }
