@@ -360,13 +360,11 @@ PluginComponent {
         return detail;
     }
 
-    function dayOverlayPosition(left, right, top, width, height, boundsWidth, boundsHeight, gap, inset) {
-        var rightX = right + gap;
-        var maxX = boundsWidth - inset - width;
-        var x = rightX <= maxX ? rightX : left - gap - width;
+    function dayOverlayPosition(left, right, rowBottom, width, height, boundsWidth, boundsHeight, gap, inset) {
+        var centeredX = (left + right - width) / 2;
         return {
-            x: Math.max(inset, Math.min(x, maxX)),
-            y: Math.max(0, Math.min(top, boundsHeight - height))
+            x: Math.max(inset, Math.min(centeredX, boundsWidth - inset - width)),
+            y: Math.max(0, Math.min(rowBottom + gap, boundsHeight - height))
         };
     }
 
@@ -1840,8 +1838,9 @@ PluginComponent {
                     if (!day)
                         return { x: 0, y: 0 };
                     var left = day.mapToItem(popoutRoot, 0, 0).x;
-                    var top = popoutColumn.y + activityScroll.y + accountsColumn.y + activityCard.y - activityScroll.contentY;
-                    return root.dayOverlayPosition(left, left + day.width, top, width, height,
+                    var rowBottom = popoutColumn.y + activityScroll.y - activityScroll.contentY
+                        + accountsColumn.y + activityCard.y + activityContent.y + barsRow.y + barsRow.height;
+                    return root.dayOverlayPosition(left, left + day.width, rowBottom, width, height,
                                                    popoutRoot.width, popoutRoot.height, Theme.spacingS, Theme.spacingM);
                 }
 

@@ -29,13 +29,9 @@ vertical shape as the bar.
 
 ## Design
 
-- **Where:** a custom overlay inside the popout window, replacing
-  `DankTooltipV2` for Daily Activity. DMS tooltips are drawn inside the
-  popout window (`DTooltipV2` parents itself to the window content item and
-  clamps to it), so the overlay does the same: it lives in the popout,
-  opens to the right of the hovered bar if it fits, else to the left, top
-  aligned with the chart, and is clamped inside the popout. It never takes
-  mouse input.
+- **Where:** the mouse-transparent overlay replaces `DankTooltipV2` for token bars
+  and opens below the Daily Activity bars and day labels, centered on the hovered
+  day and clamped inside the popout.
 - **Header:** short weekday and date on the left, the day's total tokens
   on the right.
 - **Mini bar:** fixed height (about 120 px), one slice per model family in
