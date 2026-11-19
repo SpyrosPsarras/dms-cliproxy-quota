@@ -60,8 +60,8 @@ freedesktop Secret Service vault.
   account gets a colour: outlined boxes in the Daily Activity and Models bars
   show its share, and account chips filter the usage cards to one account.
   Hovering a day shows that day's bar split by account, with each account's
-  models beside its part. Requires pi-bridge 0.12.0 or newer; days before the
-  bridge update show as "earlier".
+  models beside its part. Requires pi-bridge 0.12.0 or newer; usage from before
+  the bridge update shows as "earlier".
 - **Providers are data, not code.** Group ids, labels, and providers come
   from the bridge and are never used in rendering or aggregation decisions;
   the one exception is picking an icon, and an unknown provider gets a
