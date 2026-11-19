@@ -1278,7 +1278,7 @@ PluginComponent {
                                 radius: Theme.cornerRadius
                                 color: Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
                                 border.width: 1
-                                border.color: accountCard.healthy ? Theme.outlineLight : Theme.withAlpha(Theme.error, 0.5)
+                                border.color: accountCard.healthy ? (accountCard.modelData.headline ? Theme.primary : Theme.outlineLight) : Theme.withAlpha(Theme.error, 0.5)
                                 clip: true
 
                                 Behavior on height {
@@ -1320,6 +1320,14 @@ PluginComponent {
                                             text: accountCard.modelData.label || accountCard.modelData.account
                                             font.pixelSize: Theme.fontSizeMedium
                                             color: Theme.surfaceText
+                                            anchors.verticalCenter: parent.verticalCenter
+                                        }
+
+                                        StyledText {
+                                            visible: accountCard.modelData.headline
+                                            text: root.tr("shown")
+                                            font.pixelSize: Theme.fontSizeSmall
+                                            color: Theme.primary
                                             anchors.verticalCenter: parent.verticalCenter
                                         }
 

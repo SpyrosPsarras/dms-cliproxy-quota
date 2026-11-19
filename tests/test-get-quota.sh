@@ -139,6 +139,26 @@ else
     fail "acme provider entries: $(jq -r '[.providers[] | select(.provider == "acme")] | length' <<<"$OUT")"
 fi
 
+if jq -e '[.providers[0].accounts[].headline] == [false, true]' <<<"$OUT" >/dev/null; then
+    pass "only the newest-request live account is marked headline"
+else
+    fail "headline markers: $(jq -c '[.providers[0].accounts[].headline]' <<<"$OUT")"
+fi
+if jq -e '[.providers[] | select(.provider == "legacy") | .accounts[].headline] == [false]' <<<"$OUT" >/dev/null; then
+    pass "provider with no live account has no headline marker"
+else
+    fail "non-live account should have headline false"
+fi
+setup
+jq '.accounts[].account = "a***@example.com"' "$FIXTURES/usage-multi-account.json" > "$TMP/same-mask.json"
+export SHIM_BODY_FILE="$TMP/same-mask.json"
+OUT="$(run_script)"
+if jq -e '[.providers[0].accounts[].headline] == [false, true]' <<<"$OUT" >/dev/null; then
+    pass "accounts with the same masked name get one headline marker"
+else
+    fail "same-mask headline markers: $(jq -c '[.providers[0].accounts[].headline]' <<<"$OUT")"
+fi
+
 echo "=== Test 3e: the account used last drives the aggregate ==="
 setup
 jq '(.accounts[0].lastRequestAt) = "2026-08-26T11:26:00.5-02:00"' \
@@ -168,6 +188,11 @@ if [ "$(jq -r '.providers[0].aggregate' <<<"$OUT")" = "0.2" ]; then
     pass "no request times: worst live account wins"
 else
     fail "never-used aggregate: $(jq -r '.providers[0].aggregate' <<<"$OUT")"
+fi
+if jq -e '[.providers[0].accounts[].headline] == [true, false]' <<<"$OUT" >/dev/null; then
+    pass "worst live account is marked headline when request times are absent"
+else
+    fail "fallback headline markers: $(jq -c '[.providers[0].accounts[].headline]' <<<"$OUT")"
 fi
 
 setup

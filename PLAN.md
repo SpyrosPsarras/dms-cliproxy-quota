@@ -97,7 +97,8 @@ order is the server's order. Each page:
 - Expandable account list: every account, including disabled ones labelled as
   disabled. Per account: masked label, health line (`status`, `error`,
   `lastRequestAt`), per-group bars, `success`/`failed` counters. Disabled and
-  unavailable accounts render but never feed the aggregate.
+  unavailable accounts render but never feed the aggregate. The account behind
+  the aggregate gets an accent border and a "shown" tag.
 - Header: `cache.updatedAt` age and a refresh button hitting `?refresh=1` (server
   rate-limits that to its cache TTL, so a mashed button degrades to a normal read).
 

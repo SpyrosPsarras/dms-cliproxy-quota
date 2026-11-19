@@ -40,6 +40,7 @@ _Avoid_: usage, used, consumed
 A provider's headline number: the worst group of the live account that took the
 newest request. If no live account reports a request time, the worst group
 across all live accounts.
+The winning account has `headline: true` and is tagged "shown" in the account list.
 _Avoid_: total, average
 
 **Focused provider**:
