@@ -77,6 +77,50 @@ PluginComponent {
     readonly property var activity: pillProvider ? (pillProvider.activity || []) : []
     readonly property string todayDate: Qt.formatDate(new Date(nowMs), "yyyy-MM-dd")
 
+    readonly property var accountPalette: [
+        Theme.surface || "#101216",
+        "#391047",
+        "#002738",
+        "#481c00",
+        "#00281b"
+    ]
+
+    readonly property var accountColors: {
+        var accounts = pillProvider?.accounts || [];
+        var colors = {};
+        if (accounts.length >= 2) {
+            accounts.forEach((account, index) => {
+                if (account.authIndex)
+                    colors[account.authIndex] = accountPalette[index % accountPalette.length];
+            });
+        }
+        return colors;
+    }
+
+    readonly property bool showAccountSplit: {
+        return Object.keys(accountColors).length >= 2 && activity.some(entry =>
+            Object.values(entry.accounts || {}).some(account => Object.keys(account.tokens || {}).length > 0));
+    }
+
+    property string selectedAccount: ""
+    readonly property string focusedProviderId: pillProvider?.provider || ""
+    onFocusedProviderIdChanged: selectedAccount = ""
+    onPillProviderChanged: {
+        if (selectedAccount && !pillProvider?.accounts?.some(account => account.authIndex === selectedAccount))
+            selectedAccount = "";
+    }
+
+    function viewEntry(entry) {
+        if (selectedAccount === "")
+            return entry;
+        var account = entry.accounts?.[selectedAccount];
+        return { date: entry.date, requests: account?.requests || 0, failed: account?.failed || 0, tokens: account?.tokens || {} };
+    }
+
+    readonly property var viewActivity: {
+        return activity.map(entry => viewEntry(entry));
+    }
+
     function dayTokens(entry) {
         var sum = 0;
         var t = entry.tokens || {};
@@ -173,6 +217,22 @@ PluginComponent {
         return sum;
     }
 
+    function accountTokens(entry, authIndex, family) {
+        var account = entry.accounts?.[authIndex];
+        if (!account)
+            return 0;
+        return family ? familyTokens(account, family) : dayTokens(account);
+    }
+
+    function clampedBoxes(total, parts) {
+        var remaining = Math.max(0, total);
+        return parts.map(part => {
+            var value = Math.max(0, Math.min(remaining, part.value));
+            remaining -= value;
+            return { authIndex: part.authIndex, value: value };
+        });
+    }
+
     // Survives the refresh that rebuilds the family delegates.
     property var expandedFamilies: ({})
     function toggleFamily(name) {
@@ -184,8 +244,8 @@ PluginComponent {
     readonly property var usageStats: {
         var today = { label: tr("Today"), tokens: 0, requests: 0 };
         var week = { label: tr("7 days"), tokens: 0, requests: 0 };
-        for (var i = 0; i < activity.length; i++) {
-            var e = activity[i];
+        for (var i = 0; i < viewActivity.length; i++) {
+            var e = viewActivity[i];
             week.tokens += dayTokens(e);
             week.requests += e.requests;
             if (e.date === todayDate) {
@@ -519,6 +579,7 @@ PluginComponent {
             Connections {
                 target: popoutRoot.parentPopout
                 function onOpened() {
+                    root.selectedAccount = "";
                     Qt.callLater(() => popoutRoot.forceActiveFocus());
                 }
             }
