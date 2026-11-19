@@ -15,6 +15,10 @@ One credential CLIProxyAPI holds for a provider. A provider may have several;
 the proxy routes each request to whichever live account has headroom.
 _Avoid_: auth file, subscription, user
 
+**Account colour**:
+Colour assigned by account list order and shared by the card border, chip swatch,
+and usage outlines.
+
 **Live account**:
 An account that is not `disabled`, not `unavailable`, is `supported`, and
 reports at least one group. Only live accounts feed the aggregate.

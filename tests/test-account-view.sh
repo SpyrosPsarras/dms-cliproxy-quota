@@ -58,9 +58,21 @@ assert.deepEqual(plain(block('usageStats')), [
     {label: '7 days', tokens: 330, requests: 16},
 ], 'All keeps the provider totals, including unattributed usage');
 
+runFunction('familyTokens');
+runFunction('familyViewTotal');
+const family = {ids: ['small', 'large', 'absent']};
+assert.equal(context.familyViewTotal(family), 330, 'All includes unattributed tokens');
+context.selectedAccount = second;
+assert.equal(context.familyViewTotal(family), 110, 'the selected account contributes only its own tokens');
+assert.equal(context.familyViewTotal({ids: ['small']}), 70, 'only models in the family are counted');
+context.selectedAccount = '';
+
 const palette = source.match(/readonly property var accountPalette: (\[[\s\S]*?\n    \])/);
 assert.ok(palette, 'accountPalette binding is missing');
 context.accountPalette = vm.runInContext(palette[1], context);
+assert.deepEqual(plain(context.accountPalette), ['#e6e1e5', '#ff6ec7', '#00e5ff', '#c6ff00', '#ff9100']);
+context.Theme.surfaceText = '#fafafa';
+assert.equal(vm.runInContext(palette[1], context)[0], context.Theme.surfaceText);
 Object.defineProperty(context, 'accountColors', {get: () => block('accountColors')});
 context.pillProvider = {accounts: [accounts[0]]};
 assert.deepEqual(plain(context.accountColors), {});
@@ -79,7 +91,6 @@ context.activity = [older, {...today, accounts: {
 }}];
 assert.equal(block('showAccountSplit'), false, 'old bridges report account requests but no account tokens');
 
-runFunction('familyTokens');
 runFunction('accountTokens');
 assert.equal(context.accountTokens(today, second, null), 60);
 assert.equal(context.accountTokens(today, second, {ids: ['small', 'absent']}), 20);
@@ -87,6 +98,21 @@ assert.equal(context.accountTokens(older, second, null), 0);
 assert.equal(context.accountTokens(today, 'unknown', {ids: ['small']}), 0);
 
 runFunction('clampedBoxes');
+runFunction('accountBoxes');
+Object.defineProperty(context, 'splitAccounts', {get: () => block('splitAccounts')});
+assert.deepEqual(plain(context.accountBoxes(200, [today], null)), [
+    {authIndex: second, value: 60}, {authIndex: first, value: 70},
+]);
+context.selectedAccount = second;
+assert.deepEqual(plain(context.accountBoxes(80, [yesterday, today], {ids: ['small']})), [
+    {authIndex: second, value: 70},
+]);
+context.selectedAccount = first;
+assert.deepEqual(plain(context.accountBoxes(80, [yesterday, today], {ids: ['small']})), [
+    {authIndex: first, value: 10},
+]);
+assert.deepEqual(plain(context.accountBoxes(30, [older], null)), []);
+context.selectedAccount = '';
 assert.deepEqual(plain(context.clampedBoxes(100, [{authIndex: 'a1', value: 70}, {authIndex: 'b2', value: 50}])), [
     {authIndex: 'a1', value: 70}, {authIndex: 'b2', value: 30},
 ]);
@@ -117,5 +143,5 @@ context.Qt = {callLater: () => {}};
 context.selectedAccount = second;
 vm.runInContext(opened[1], context);
 assert.equal(context.selectedAccount, '', 'reset the selection when the popout opens');
-console.log('PASS: account colours, split availability, filtered usage, account reset and clamped boxes');
+console.log('PASS: account colours, split availability, filtered usage and family totals, account reset and clamped boxes');
 NODE

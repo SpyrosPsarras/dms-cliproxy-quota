@@ -4,6 +4,7 @@ var strings = {
     "Quota": { fr: "Quota", es: "Cuota" },
     "remaining": { fr: "restant", es: "restante" },
     "Accounts": { fr: "Comptes", es: "Cuentas" },
+    "All": { fr: "Tous", es: "Todos" },
     "Warnings on the taskbar": { fr: "Alertes dans la barre", es: "Avisos en la barra" },
     "Daily Activity": { fr: "Activité quotidienne", es: "Actividad diaria" },
     "Token Consumption": { fr: "Consommation de jetons", es: "Consumo de tokens" },
