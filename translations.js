@@ -22,6 +22,7 @@ var strings = {
     "resets in": { fr: "réinitialisation dans", es: "se reinicia en" },
     "resets soon": { fr: "réinitialisation imminente", es: "se reinicia pronto" },
     "just now": { fr: "à l'instant", es: "ahora mismo" },
+    "shown": { fr: "affiché", es: "mostrado" },
     "disabled": { fr: "désactivé", es: "desactivado" },
     "unavailable": { fr: "indisponible", es: "no disponible" },
     "unsupported": { fr: "non pris en charge", es: "no compatible" },

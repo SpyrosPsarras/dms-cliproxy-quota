@@ -206,6 +206,7 @@ jq -c --arg contractLatest "${contract_latest:-}" --argjson contract "$CONTRACT"
                 accounts: [$doc.accounts[] | select(.provider == $p) | {
                     account, label, status, disabled, unavailable, supported,
                     success, failed, lastRequestAt,
+                    headline: ($win != null and .authIndex == $win.authIndex),
                     error: (.error // ""),
                     noQuota: ((.groups // []) | length == 0),
                     groups: [(.groups // [])[] | group_view]
