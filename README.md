@@ -5,7 +5,7 @@ plugin that shows how much provider quota remains behind your
 [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) server — every
 provider, every quota group, without opening another tool.
 
-<img width="390" height="931" alt="image" src="https://github.com/user-attachments/assets/3d4d85a9-1797-4db2-99c0-e4275e4b41e4" /> <img width="391" height="912" alt="image" src="https://github.com/user-attachments/assets/e76e5b0c-7697-4987-a9c9-c23044dafc88" />
+<img width="390" alt="Popout with two accounts: account chips, account outlines in the Daily Activity and Models bars" src="docs/images/popout.png" /> <img width="390" alt="Daily Activity hover: each account's part of the day with its models" src="docs/images/hover.png" />
 
 
 
@@ -55,8 +55,13 @@ freedesktop Secret Service vault.
   local day. When a counter drops between two polls the plugin reads it as a
   restart and counts the new value as traffic since the restart, so a restart
   costs at most one poll interval of history instead of the whole day. Models are
-  data: whatever the bridge reports renders, nothing is named in code. The
-  per-account split requires pi-bridge 0.12.0 or newer.
+  data: whatever the bridge reports renders, nothing is named in code.
+- **Usage per account.** With two or more accounts on a provider, each
+  account gets a colour: outlined boxes in the Daily Activity and Models bars
+  show its share, and account chips filter the usage cards to one account.
+  Hovering a day shows that day's bar split by account, with each account's
+  models beside its part. Requires pi-bridge 0.12.0 or newer; days before the
+  bridge update show as "earlier".
 - **Providers are data, not code.** Group ids, labels, and providers come
   from the bridge and are never used in rendering or aggregation decisions;
   the one exception is picking an icon, and an unknown provider gets a

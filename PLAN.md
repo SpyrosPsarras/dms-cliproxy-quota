@@ -102,7 +102,9 @@ order is the server's order. Each page:
   replaces the border.
 - Usage cards: when per-account tokens are available for a provider with multiple
   accounts, Daily Activity and Models outline each account's share, and account
-  chips filter those cards and Token Consumption.
+  chips filter those cards and Token Consumption. Hovering a day opens a box
+  under the bars with that day's bar split by account (unsplit usage as
+  "earlier"), each part labelled with its account and its models.
 - Header: `cache.updatedAt` age and a refresh button hitting `?refresh=1` (server
   rate-limits that to its cache TTL, so a mashed button degrades to a normal read).
 
