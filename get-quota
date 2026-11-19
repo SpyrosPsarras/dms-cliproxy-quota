@@ -105,14 +105,14 @@ if [ "$hist_writable" = "1" ]; then
         . as $doc |
         {
             ts: $ts,
-            providers: ([.accounts[] | {provider, success: (.success // 0), failed: (.failed // 0)}]
-                | group_by(.provider)
-                | map(.[0] as $first | {
+            providers: (.accounts | group_by(.provider)
+                | map(.[0] as $first | map({authIndex, success: (.success // 0), failed: (.failed // 0), tokens: (.tokens // {})}) as $accounts | {
                     provider: $first.provider,
-                    success: ([.[].success] | add),
-                    failed: ([.[].failed] | add),
+                    success: ($accounts | map(.success) | add),
+                    failed: ($accounts | map(.failed) | add),
                     tokens: ([($doc.models // [])[] | select(.provider == $first.provider)]
-                        | map({key: .model, value: (.total // 0)}) | from_entries)
+                        | map({key: .model, value: (.total // 0)}) | from_entries),
+                    accounts: $accounts
                 }))
         }' "$body_file")
     hist_tmp=$(mktemp "$CACHE_DIR/.hist.XXXXXX")
@@ -124,28 +124,36 @@ fi
 activity=$(jq -s '
     def delta(cur; prev): if cur >= prev then cur - prev else cur end;
     def sum_by_key: group_by(.key) | map({key: .[0].key, value: (map(.value) | add)}) | from_entries;
-    [ .[] | .ts as $ts | .providers[]
-      | {provider, ts: $ts, success, failed, tokens: (.tokens // {})} ]
+    def usage_delta($cur; $prev): {
+        requests: delta($cur.success // 0; $prev.success // 0),
+        failed: delta($cur.failed // 0; $prev.failed // 0),
+        tokens: ([ ($cur.tokens // {} | keys_unsorted[]), ($prev.tokens // {} | keys_unsorted[]) ] | unique
+            | map({key: ., value: delta($cur.tokens[.] // 0; $prev.tokens[.] // 0)}))
+    };
+    def sum_usage: {
+        requests: (map(.requests) | add),
+        failed: (map(.failed) | add),
+        tokens: (map(.tokens[]) | sum_by_key | with_entries(select(.value > 0)))
+    };
+    [ .[] | .ts as $ts | .providers[] | . + {ts: $ts} ]
     | group_by(.provider)
     | map({
         key: .[0].provider,
         value: (sort_by(.ts) | . as $s
             | [ range(1; ($s | length)) as $i
                 | $s[$i] as $cur | $s[$i - 1] as $prev
-                | {
-                    date: ($cur.ts | strflocaltime("%Y-%m-%d")),
-                    requests: delta($cur.success; $prev.success),
-                    failed: delta($cur.failed; $prev.failed),
-                    tokens: ([ ($cur.tokens | keys_unsorted[]), ($prev.tokens | keys_unsorted[]) ] | unique
-                        | map({key: ., value: delta($cur.tokens[.] // 0; $prev.tokens[.] // 0)}))
-                } ]
+                | {date: ($cur.ts | strflocaltime("%Y-%m-%d"))} + usage_delta($cur; $prev)
+                + if ($prev | has("accounts")) then
+                    ($prev.accounts | INDEX(.authIndex)) as $previous
+                    | {accounts: [ $cur.accounts[]? | select(.authIndex | type == "string") | . as $account
+                        | {authIndex} + usage_delta($account; $previous[$account.authIndex]) ]}
+                  else {} end ]
             | group_by(.date)
-            | map({
-                date: .[0].date,
-                requests: (map(.requests) | add),
-                failed: (map(.failed) | add),
-                tokens: (map(.tokens[]) | sum_by_key | with_entries(select(.value > 0)))
-              })
+            | map({date: .[0].date} + sum_usage
+                + if any(has("accounts")) then
+                    {accounts: (map(.accounts[]?) | group_by(.authIndex)
+                        | map({key: .[0].authIndex, value: sum_usage}) | from_entries)}
+                  else {} end)
             | .[-7:])
     })
     | from_entries' "$HIST_FILE" 2>/dev/null) || activity="{}"
@@ -204,7 +212,7 @@ jq -c --arg contractLatest "${contract_latest:-}" --argjson contract "$CONTRACT"
                 activity: ($activity[$p] // []),
                 problem: ([$all[] | troubled] | all),
                 accounts: [$doc.accounts[] | select(.provider == $p) | {
-                    account, label, status, disabled, unavailable, supported,
+                    account, authIndex, label, status, disabled, unavailable, supported,
                     success, failed, lastRequestAt,
                     headline: ($win != null and .authIndex == $win.authIndex),
                     error: (.error // ""),
