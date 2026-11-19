@@ -657,6 +657,73 @@ else
     fail "vanished model: $(jq -c '.providers[0].activity[-1].tokens' <<<"$OUT")"
 fi
 
+echo "=== Test 13c: per-account activity from local history ==="
+setup
+export SHIM_BODY_FILE="$FIXTURES/usage-account-tokens.json"
+mkdir -p "$(dirname "$HIST")"
+printf '{"ts":%s,"providers":[{"provider":"acme","success":3,"failed":1,"tokens":{"m":110},"accounts":[{"authIndex":"2222222222222222","success":1,"failed":0,"tokens":{"m":10}},{"authIndex":"1111111111111111","success":2,"failed":1,"tokens":{"m":100,"gone":15}}]}]}\n' "$YD" > "$HIST"
+OUT="$(run_script)"
+if jq -e '[.providers[0].accounts[].authIndex] == ["1111111111111111", "2222222222222222"]' <<<"$OUT" >/dev/null; then
+    pass "output carries authIndex per account"
+else
+    fail "output carries authIndex per account: $(jq -c '[.providers[0].accounts[].authIndex]' <<<"$OUT")"
+fi
+if jq -e '.providers[0].activity[-1].accounts == {
+    "1111111111111111": {requests: 3, failed: 1, tokens: {m: 60}},
+    "2222222222222222": {requests: 2, failed: 1, tokens: {m: 30}}
+}' <<<"$OUT" >/dev/null; then
+    pass "per-account day deltas"
+else
+    fail "per-account day deltas: $(jq -c '.providers[0].activity[-1].accounts' <<<"$OUT")"
+fi
+if tail -n 1 "$HIST" | jq -e '[.providers[].accounts[]] == [
+    {authIndex: "1111111111111111", success: 5, failed: 2, tokens: {m: 160}},
+    {authIndex: "2222222222222222", success: 3, failed: 1, tokens: {m: 40}},
+    {authIndex: "3333333333333333", success: 0, failed: 0, tokens: {}}
+]' >/dev/null; then
+    pass "history stores cumulative account counters and defaults missing tokens to an empty object"
+else
+    fail "history lacks cumulative account counters"
+fi
+
+printf '{"ts":%s,"providers":[{"provider":"acme","success":10,"failed":4,"tokens":{"m":540},"accounts":[{"authIndex":"1111111111111111","success":7,"failed":3,"tokens":{"m":500}},{"authIndex":"2222222222222222","success":3,"failed":1,"tokens":{"m":40}}]}]}\n' "$YD" > "$HIST"
+jq '.accounts[0].tokens.m = 20 | .models[0].total = 60' "$SHIM_BODY_FILE" > "$TMP/usage-reset.json"
+OUT="$(SHIM_BODY_FILE="$TMP/usage-reset.json" run_script --force)"
+if jq -e '.providers[0].activity[-1].accounts["1111111111111111"] == {requests: 5, failed: 2, tokens: {m: 20}}' <<<"$OUT" >/dev/null; then
+    pass "account counter reset uses delta rule"
+else
+    fail "account counter reset uses delta rule: $(jq -c '.providers[0].activity[-1].accounts' <<<"$OUT")"
+fi
+
+printf '{"ts":%s,"providers":[{"provider":"acme","success":3,"failed":1,"tokens":{"m":110}}]}\n' "$YD" > "$HIST"
+OUT="$(run_script --force)"
+if jq -e '.providers[0].activity[-1] | (has("accounts") | not) and .tokens == {m: 90}' <<<"$OUT" >/dev/null; then
+    pass "no split when previous snapshot lacks accounts"
+else
+    fail "no split when previous snapshot lacks accounts: $(jq -c '.providers[0].activity[-1]' <<<"$OUT")"
+fi
+
+printf '{"ts":%s,"providers":[{"provider":"acme","success":2,"failed":1,"tokens":{"m":100},"accounts":[{"authIndex":"1111111111111111","success":2,"failed":1,"tokens":{"m":100}}]}]}\n' "$YD" > "$HIST"
+OUT="$(run_script --force)"
+if jq -e '.providers[0].activity[-1].accounts["2222222222222222"] == {requests: 3, failed: 1, tokens: {m: 40}}' <<<"$OUT" >/dev/null; then
+    pass "account missing from previous snapshot counts from zero"
+else
+    fail "account missing from previous snapshot counts from zero: $(jq -c '.providers[0].activity[-1].accounts' <<<"$OUT")"
+fi
+
+printf '{"ts":%s,"providers":[{"provider":"acme","success":1,"failed":0,"tokens":{"m":80},"accounts":[{"authIndex":"1111111111111111","success":1,"failed":0,"tokens":{"m":80}}]}]}\n' "$YD" > "$HIST"
+jq '.accounts[0] |= (.success = 2 | .failed = 1 | .tokens.m = 500) | .models[0].total = 540' "$SHIM_BODY_FILE" > "$TMP/usage-before-reset.json"
+SHIM_BODY_FILE="$TMP/usage-before-reset.json" run_script --force >/dev/null
+OUT="$(SHIM_BODY_FILE="$TMP/usage-reset.json" run_script --force)"
+if jq -e '.providers[0].activity[-1].accounts == {
+    "1111111111111111": {requests: 4, failed: 2, tokens: {m: 440}},
+    "2222222222222222": {requests: 3, failed: 1, tokens: {m: 40}}
+}' <<<"$OUT" >/dev/null; then
+    pass "same-day intervals sum account activity across a reset"
+else
+    fail "same-day intervals sum account activity across a reset: $(jq -c '.providers[0].activity' <<<"$OUT")"
+fi
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1

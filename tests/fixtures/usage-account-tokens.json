@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-26T13:28:27Z",
+  "cache": { "updatedAt": "2026-08-26T13:28:29Z", "stale": false, "ttlMs": 120000 },
+  "accounts": [
+    {
+      "provider": "acme",
+      "account": "a***@example.com",
+      "authIndex": "1111111111111111",
+      "label": "a***@example.com",
+      "status": "active",
+      "disabled": false,
+      "unavailable": false,
+      "supported": true,
+      "success": 5,
+      "failed": 2,
+      "tokens": { "m": 160 },
+      "groups": [
+        { "id": "short-window", "label": "Short", "remainingFraction": 0.9, "models": [] }
+      ]
+    },
+    {
+      "provider": "acme",
+      "account": "b***@example.com",
+      "authIndex": "2222222222222222",
+      "label": "b***@example.com",
+      "status": "active",
+      "disabled": false,
+      "unavailable": false,
+      "supported": true,
+      "success": 3,
+      "failed": 1,
+      "tokens": { "m": 40 },
+      "groups": [
+        { "id": "short-window", "label": "Short", "remainingFraction": 0.8, "models": [] }
+      ]
+    },
+    {
+      "provider": "legacy",
+      "account": "c***@example.com",
+      "authIndex": "3333333333333333",
+      "label": "c***@example.com",
+      "status": "active",
+      "disabled": false,
+      "unavailable": false,
+      "supported": false,
+      "success": 0,
+      "failed": 0,
+      "groups": []
+    }
+  ],
+  "unsupportedProviders": ["legacy"],
+  "models": [
+    { "provider": "acme", "model": "m", "input": 150, "output": 50, "reasoning": 0, "cached": 0, "total": 200 }
+  ]
+}

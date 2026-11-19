@@ -98,7 +98,11 @@ order is the server's order. Each page:
   disabled. Per account: masked label, health line (`status`, `error`,
   `lastRequestAt`), per-group bars, `success`/`failed` counters. Disabled and
   unavailable accounts render but never feed the aggregate. The account behind
-  the aggregate gets an accent border and a "shown" tag.
+  the aggregate gets a "shown" tag and an accent border unless an account colour
+  replaces the border.
+- Usage cards: when per-account tokens are available for a provider with multiple
+  accounts, Daily Activity and Models outline each account's share, and account
+  chips filter those cards and Token Consumption.
 - Header: `cache.updatedAt` age and a refresh button hitting `?refresh=1` (server
   rate-limits that to its cache TTL, so a mashed button degrades to a normal read).
 

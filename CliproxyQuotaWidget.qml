@@ -8,6 +8,24 @@ import "translations.js" as Tr
 PluginComponent {
     id: root
 
+    component AccountOutline: Rectangle {
+        required property color accountColor
+
+        radius: 3
+        color: "transparent"
+        border.width: 2
+        border.color: accountColor
+
+        Rectangle {
+            anchors.fill: parent
+            anchors.margins: 2
+            radius: 1
+            color: "transparent"
+            border.width: 1
+            border.color: Theme.surfaceContainer
+        }
+    }
+
     property string lang: (SessionData.locale || Qt.locale().name).split(/[_-]/)[0]
     function tr(key) {
         return Tr.tr(key, lang);
@@ -76,6 +94,61 @@ PluginComponent {
 
     readonly property var activity: pillProvider ? (pillProvider.activity || []) : []
     readonly property string todayDate: Qt.formatDate(new Date(nowMs), "yyyy-MM-dd")
+
+    readonly property var accountPalette: [
+        Theme.surfaceText || "#e6e1e5",
+        "#ff6ec7",
+        "#00e5ff",
+        "#c6ff00",
+        "#ff9100"
+    ]
+
+    readonly property var accountColors: {
+        var accounts = pillProvider?.accounts || [];
+        var colors = {};
+        if (accounts.length >= 2) {
+            accounts.forEach((account, index) => {
+                if (account.authIndex)
+                    colors[account.authIndex] = accountPalette[index % accountPalette.length];
+            });
+        }
+        return colors;
+    }
+
+    readonly property var splitAccounts: {
+        return (pillProvider?.accounts || []).filter(account => accountColors[account.authIndex]);
+    }
+
+    readonly property bool showAccountSplit: {
+        return Object.keys(accountColors).length >= 2 && activity.some(entry => hasAccountTokens(entry));
+    }
+
+    function hasAccountTokens(entry) {
+        return Object.values(entry.accounts || {}).some(account => Object.keys(account.tokens || {}).length > 0);
+    }
+
+    function cardAccountColor(authIndex) {
+        return showAccountSplit ? accountColors[authIndex] || "" : "";
+    }
+
+    property string selectedAccount: ""
+    readonly property string focusedProviderId: pillProvider?.provider || ""
+    onFocusedProviderIdChanged: selectedAccount = ""
+    onPillProviderChanged: {
+        if (selectedAccount && !pillProvider?.accounts?.some(account => account.authIndex === selectedAccount))
+            selectedAccount = "";
+    }
+
+    function viewEntry(entry) {
+        if (selectedAccount === "")
+            return entry;
+        var account = entry.accounts?.[selectedAccount];
+        return { date: entry.date, requests: account?.requests || 0, failed: account?.failed || 0, tokens: account?.tokens || {} };
+    }
+
+    readonly property var viewActivity: {
+        return activity.map(entry => viewEntry(entry));
+    }
 
     function dayTokens(entry) {
         var sum = 0;
@@ -152,10 +225,12 @@ PluginComponent {
             f.total += mt.total;
             f.ids.push(mt.model);
             var v = f.versions.find(x => x.name === p.name);
-            if (v)
+            if (v) {
                 v.total += mt.total;
-            else
-                f.versions.push({ name: p.name, total: mt.total });
+                v.ids.push(mt.model);
+            } else {
+                f.versions.push({ name: p.name, total: mt.total, ids: [mt.model] });
+            }
         }
         list.sort((a, b) => b.total - a.total);
         for (var j = 0; j < list.length; j++) {
@@ -173,6 +248,34 @@ PluginComponent {
         return sum;
     }
 
+    function familyViewTotal(family) {
+        return viewActivity.reduce((sum, entry) => sum + familyTokens(entry, family), 0);
+    }
+
+    function accountTokens(entry, authIndex, family) {
+        var account = entry.accounts?.[authIndex];
+        if (!account)
+            return 0;
+        return family ? familyTokens(account, family) : dayTokens(account);
+    }
+
+    function clampedBoxes(total, parts) {
+        var left = Math.max(0, total);
+        return parts.map(part => {
+            var value = Math.max(0, Math.min(left, part.value));
+            left -= value;
+            return { authIndex: part.authIndex, value: value };
+        });
+    }
+
+    function accountBoxes(total, entries, family) {
+        var parts = splitAccounts.map(account => ({
+            authIndex: account.authIndex,
+            value: entries.reduce((sum, entry) => sum + accountTokens(entry, account.authIndex, family), 0)
+        }));
+        return clampedBoxes(total, parts).filter(part => part.value > 0 && (!selectedAccount || part.authIndex === selectedAccount));
+    }
+
     // Survives the refresh that rebuilds the family delegates.
     property var expandedFamilies: ({})
     function toggleFamily(name) {
@@ -184,8 +287,8 @@ PluginComponent {
     readonly property var usageStats: {
         var today = { label: tr("Today"), tokens: 0, requests: 0 };
         var week = { label: tr("7 days"), tokens: 0, requests: 0 };
-        for (var i = 0; i < activity.length; i++) {
-            var e = activity[i];
+        for (var i = 0; i < viewActivity.length; i++) {
+            var e = viewActivity[i];
             week.tokens += dayTokens(e);
             week.requests += e.requests;
             if (e.date === todayDate) {
@@ -519,6 +622,7 @@ PluginComponent {
             Connections {
                 target: popoutRoot.parentPopout
                 function onOpened() {
+                    root.selectedAccount = "";
                     Qt.callLater(() => popoutRoot.forceActiveFocus());
                 }
             }
@@ -905,6 +1009,84 @@ PluginComponent {
 
                         }
 
+                        Flickable {
+                            id: accountScroll
+                            visible: root.showAccountSplit
+                            width: accountsColumn.width - 2 * Theme.spacingM
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            height: 32
+                            contentWidth: Math.max(width, accountChips.width)
+                            contentHeight: height
+                            flickableDirection: Flickable.HorizontalFlick
+                            boundsBehavior: Flickable.StopAtBounds
+                            clip: true
+
+                            Row {
+                                id: accountChips
+                                spacing: Theme.spacingS
+
+                                Repeater {
+                                    model: root.showAccountSplit ? [{ authIndex: "", label: root.tr("All") }].concat(root.splitAccounts) : []
+
+                                    delegate: StyledRect {
+                                        id: accountChip
+                                        required property var modelData
+                                        readonly property bool selected: modelData.authIndex === root.selectedAccount
+                                        readonly property string chipLabel: modelData.label || modelData.account
+                                        height: accountScroll.height
+                                        width: chipContent.width + 2 * Theme.spacingS
+                                        radius: height / 2
+                                        color: selected ? Theme.withAlpha(Theme.primary, 0.16) : Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
+                                        border.width: activeFocus ? 2 : 1
+                                        border.color: activeFocus ? Theme.primary : selected ? Theme.withAlpha(Theme.primary, 0.45) : Theme.outlineLight
+                                        activeFocusOnTab: true
+                                        Accessible.role: Accessible.RadioButton
+                                        Accessible.name: chipLabel
+                                        Accessible.checkable: true
+                                        Accessible.checked: selected
+                                        Accessible.onPressAction: root.selectedAccount = modelData.authIndex
+                                        Keys.onSpacePressed: root.selectedAccount = modelData.authIndex
+                                        Keys.onReturnPressed: root.selectedAccount = modelData.authIndex
+                                        Keys.onEnterPressed: root.selectedAccount = modelData.authIndex
+                                        onActiveFocusChanged: {
+                                            if (activeFocus)
+                                                accountScroll.contentX = Math.max(x + width - accountScroll.width, Math.min(x, accountScroll.contentX));
+                                        }
+
+                                        Row {
+                                            id: chipContent
+                                            anchors.centerIn: parent
+                                            spacing: Theme.spacingXS
+
+                                            Rectangle {
+                                                visible: accountChip.modelData.authIndex !== ""
+                                                width: 8
+                                                height: width
+                                                radius: width / 2
+                                                color: root.accountColors[accountChip.modelData.authIndex] || "transparent"
+                                                anchors.verticalCenter: parent.verticalCenter
+                                            }
+
+                                            StyledText {
+                                                text: accountChip.chipLabel
+                                                elide: Text.ElideRight
+                                                width: Math.min(implicitWidth, Math.max(0, accountScroll.width - 2 * Theme.spacingS - 8 - Theme.spacingXS))
+                                                font.pixelSize: Theme.fontSizeSmall
+                                                color: Theme.surfaceText
+                                                anchors.verticalCenter: parent.verticalCenter
+                                            }
+                                        }
+
+                                        MouseArea {
+                                            anchors.fill: parent
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: root.selectedAccount = accountChip.modelData.authIndex
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         StyledRect {
                             id: tokensCard
                             visible: root.modelTotals.length > 0
@@ -990,7 +1172,8 @@ PluginComponent {
                                 return hasTokens ? root.dayTokens(entry) : entry.requests;
                             }
 
-                            function dayTooltip(entry) {
+                            function dayTooltip(allEntry) {
+                                var entry = root.viewEntry(allEntry);
                                 var byName = {};
                                 var names = [];
                                 var t = entry.tokens || {};
@@ -1005,6 +1188,11 @@ PluginComponent {
                                 var req = entry.requests + " " + root.tr("requests");
                                 if (entry.failed > 0) req += " \u00b7 " + entry.failed + " " + root.tr("failed");
                                 lines.push(req);
+                                if (root.showAccountSplit && root.hasAccountTokens(allEntry)) {
+                                    root.splitAccounts.forEach(account => {
+                                        lines.push((account.label || account.account) + "  " + root.formatTokens(root.accountTokens(allEntry, account.authIndex, null)));
+                                    });
+                                }
                                 // DankTooltipV2 shows one line and elides the rest.
                                 return lines.join("  \u00b7  ");
                             }
@@ -1032,7 +1220,8 @@ PluginComponent {
                                         delegate: Column {
                                             id: dayColumn
                                             required property var modelData
-                                            readonly property real value: activityCard.value(modelData)
+                                            readonly property var entry: root.viewEntry(modelData)
+                                            readonly property real value: activityCard.value(entry)
                                             readonly property bool isToday: modelData.date === root.todayDate
                                             width: barsRow.width / root.activity.length
                                             spacing: 4
@@ -1047,6 +1236,7 @@ PluginComponent {
                                             Item {
                                                 width: parent.width
                                                 height: 64
+                                                clip: true
 
                                                 Column {
                                                     visible: activityCard.hasTokens
@@ -1058,7 +1248,7 @@ PluginComponent {
 
                                                         delegate: Rectangle {
                                                             required property var modelData
-                                                            readonly property real value: root.familyTokens(dayColumn.modelData, modelData)
+                                                            readonly property real value: root.familyTokens(dayColumn.entry, modelData)
                                                             width: Math.min(36, dayColumn.width - Theme.spacingS)
                                                             height: value > 0 && activityCard.maxValue > 0 ? Math.max(1, 64 * value / activityCard.maxValue) : 0
                                                             color: modelData.color
@@ -1067,7 +1257,7 @@ PluginComponent {
                                                 }
 
                                                 Rectangle {
-                                                    visible: !activityCard.hasTokens || dayColumn.value <= 0
+                                                    visible: (!activityCard.hasTokens || dayColumn.value <= 0) && !root.selectedAccount
                                                     anchors.bottom: parent.bottom
                                                     anchors.horizontalCenter: parent.horizontalCenter
                                                     width: Math.min(36, parent.width - Theme.spacingS)
@@ -1076,6 +1266,23 @@ PluginComponent {
                                                     color: dayColumn.value <= 0 ? Theme.surfaceVariant
                                                          : dayColumn.isToday ? Theme.primary
                                                          : Theme.withAlpha(Theme.primary, 0.35)
+                                                }
+
+                                                Column {
+                                                    anchors.bottom: parent.bottom
+                                                    anchors.horizontalCenter: parent.horizontalCenter
+
+                                                    Repeater {
+                                                        model: root.showAccountSplit && activityCard.maxValue > 0
+                                                               ? root.accountBoxes(root.dayTokens(dayColumn.modelData), [dayColumn.modelData], null).reverse() : []
+
+                                                        delegate: AccountOutline {
+                                                            required property var modelData
+                                                            width: Math.min(36, dayColumn.width - Theme.spacingS)
+                                                            height: Math.max(3, 64 * modelData.value / activityCard.maxValue)
+                                                            accountColor: root.accountColors[modelData.authIndex]
+                                                        }
+                                                    }
                                                 }
 
                                                 MouseArea {
@@ -1132,6 +1339,7 @@ PluginComponent {
                                     delegate: Column {
                                         id: familyRow
                                         required property var modelData
+                                        readonly property real viewTotal: root.familyViewTotal(modelData)
                                         readonly property bool multi: modelData.versions.length > 1
                                         readonly property bool expanded: multi && root.expandedFamilies[modelData.family] === true
                                         width: modelsContent.width
@@ -1147,7 +1355,7 @@ PluginComponent {
                                                 anchors.right: familyRow.multi ? familyChevron.left : parent.right
                                                 elide: Text.ElideRight
                                                 text: (familyRow.multi ? familyRow.modelData.family : familyRow.modelData.versions[0].name)
-                                                      + "  " + root.formatTokens(familyRow.modelData.total)
+                                                      + "  " + root.formatTokens(familyRow.viewTotal)
                                                 font.pixelSize: Theme.fontSizeSmall
                                                 color: Theme.surfaceText
                                             }
@@ -1171,16 +1379,32 @@ PluginComponent {
                                         }
 
                                         Rectangle {
+                                            id: familyBar
                                             width: parent.width
-                                            height: 6
+                                            height: root.showAccountSplit ? 10 : 6
                                             radius: 3
                                             color: Theme.surfaceVariant
+                                            clip: true
 
                                             Rectangle {
-                                                width: parent.width * familyRow.modelData.total / root.modelFamilies[0].total
+                                                width: familyBar.width * familyRow.viewTotal / root.modelFamilies[0].total
                                                 height: parent.height
                                                 radius: parent.radius
                                                 color: familyRow.modelData.color
+                                            }
+
+                                            Row {
+                                                Repeater {
+                                                    model: root.showAccountSplit
+                                                           ? root.accountBoxes(familyRow.modelData.total, root.activity, familyRow.modelData) : []
+
+                                                    delegate: AccountOutline {
+                                                        required property var modelData
+                                                        width: Math.max(3, familyBar.width * modelData.value / root.modelFamilies[0].total)
+                                                        height: familyBar.height
+                                                        accountColor: root.accountColors[modelData.authIndex]
+                                                    }
+                                                }
                                             }
                                         }
 
@@ -1198,13 +1422,14 @@ PluginComponent {
                                                 delegate: Column {
                                                     id: versionRow
                                                     required property var modelData
+                                                    readonly property real viewTotal: root.familyViewTotal(modelData)
                                                     width: versionList.width - Theme.spacingM
                                                     spacing: 2
 
                                                     StyledText {
                                                         width: parent.width
                                                         elide: Text.ElideRight
-                                                        text: versionRow.modelData.name + "  " + root.formatTokens(versionRow.modelData.total)
+                                                        text: versionRow.modelData.name + "  " + root.formatTokens(versionRow.viewTotal)
                                                         font.pixelSize: Theme.fontSizeSmall - 1
                                                         color: Theme.surfaceVariantText
                                                     }
@@ -1216,7 +1441,7 @@ PluginComponent {
                                                         color: Theme.surfaceVariant
 
                                                         Rectangle {
-                                                            width: parent.width * versionRow.modelData.total / familyRow.modelData.total
+                                                            width: parent.width * versionRow.viewTotal / familyRow.modelData.total
                                                             height: parent.height
                                                             radius: parent.radius
                                                             color: Theme.withAlpha(familyRow.modelData.color, 0.6)
@@ -1270,6 +1495,7 @@ PluginComponent {
 
                                 readonly property bool healthy: !modelData.disabled && !modelData.unavailable
                                                                 && (modelData.status === "active" || modelData.supported === false)
+                                readonly property var accountColor: root.cardAccountColor(modelData.authIndex)
                                 property bool expanded: (healthy && !modelData.noQuota) || !!modelData.error
 
                                 width: accountsColumn.width - 2 * Theme.spacingM
@@ -1277,8 +1503,8 @@ PluginComponent {
                                 height: accountHeader.height + (expanded ? accountBody.height + Theme.spacingS : 0)
                                 radius: Theme.cornerRadius
                                 color: Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
-                                border.width: 1
-                                border.color: accountCard.healthy ? (accountCard.modelData.headline ? Theme.primary : Theme.outlineLight) : Theme.withAlpha(Theme.error, 0.5)
+                                border.width: accountColor ? 2 : 1
+                                border.color: accountColor || (accountCard.healthy ? (accountCard.modelData.headline ? Theme.primary : Theme.outlineLight) : Theme.withAlpha(Theme.error, 0.5))
                                 clip: true
 
                                 Behavior on height {
