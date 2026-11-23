@@ -567,12 +567,13 @@ PluginComponent {
         return total > room ? heights.map(h => h * room / total) : heights;
     }
 
-    function dayOverlayPosition(left, right, rowBottom, width, height, boundsWidth, boundsHeight, gap, inset) {
+    // Below the bars when it fits, else above them, else as low as the popout allows.
+    function dayOverlayPosition(left, right, rowTop, rowBottom, width, height, boundsWidth, boundsHeight, gap, inset) {
         var centeredX = (left + right - width) / 2;
-        return {
-            x: Math.max(inset, Math.min(centeredX, boundsWidth - inset - width)),
-            y: Math.max(0, Math.min(rowBottom + gap, boundsHeight - height))
-        };
+        var y = rowBottom + gap + height <= boundsHeight ? rowBottom + gap
+              : rowTop - gap - height >= 0 ? rowTop - gap - height
+              : Math.max(0, boundsHeight - height);
+        return { x: Math.max(inset, Math.min(centeredX, boundsWidth - inset - width)), y: y };
     }
 
     // Survives the refresh that rebuilds the family delegates.
@@ -1917,9 +1918,9 @@ PluginComponent {
                     if (!day)
                         return { x: 0, y: 0 };
                     var left = day.mapToItem(popoutRoot, 0, 0).x;
-                    var rowBottom = popoutColumn.y + activityScroll.y - activityScroll.contentY
-                        + accountsColumn.y + activityCard.y + activityContent.y + barsRow.y + barsRow.height;
-                    return root.dayOverlayPosition(left, left + day.width, rowBottom, width, height,
+                    var rowTop = popoutColumn.y + activityScroll.y - activityScroll.contentY
+                        + accountsColumn.y + activityCard.y + activityContent.y + barsRow.y;
+                    return root.dayOverlayPosition(left, left + day.width, rowTop, rowTop + barsRow.height, width, height,
                                                    popoutRoot.width, popoutRoot.height, Theme.spacingS, Theme.spacingM);
                 }
 

@@ -357,18 +357,17 @@ test('bars are split by account when possible, otherwise by model family', () =>
 test('day overlay centers below the hovered day and clamps to the side margins', () => {
     runFunction('dayOverlayPosition');
     const position = (left, right) =>
-        plain(context.dayOverlayPosition(left, right, 240, 260, 180, 420, 620, 8, 16));
+        plain(context.dayOverlayPosition(left, right, 160, 240, 260, 180, 420, 620, 8, 16));
     assert.deepEqual(position(134, 184), {x: 29, y: 248});
     assert.deepEqual(position(32, 82), {x: 16, y: 248});
     assert.deepEqual(position(338, 388), {x: 144, y: 248});
 });
 
-test('day overlay gives up the gap before overlapping the bars row', () => {
+test('day overlay never covers the bars when it fits above them', () => {
     runFunction('dayOverlayPosition');
-    const y = rowBottom => context.dayOverlayPosition(134, 184, rowBottom, 260, 180, 420, 620, 8, 16).y;
-    assert.equal(y(436), 440);
-    assert.equal(y(440), 440);
-    assert.equal(y(441), 440);
-    assert.equal(y(-15), 0);
+    const y = (rowTop, rowBottom, height = 180) => context.dayOverlayPosition(134, 184, rowTop, rowBottom, 260, height, 420, 620, 8, 16).y;
+    assert.equal(y(352, 432), 440, 'below when it fits');
+    assert.equal(y(400, 480), 212, 'above when it does not fit below');
+    assert.equal(y(100, 180, 500), 120, 'as low as the popout allows when it fits neither way');
 });
 NODE
