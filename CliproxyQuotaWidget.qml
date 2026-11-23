@@ -109,7 +109,7 @@ PluginComponent {
                 font.pixelSize: quotaRow.emphasis ? Theme.fontSizeMedium : Theme.fontSizeSmall
                 font.weight: quotaRow.emphasis ? Font.Bold : Font.Medium
                 font.features: ({ tnum: 1 })
-                color: root.ringColor(quotaRow.fraction)
+                color: root.liveColor(root.ringColor(quotaRow.fraction))
             }
         }
 
@@ -123,7 +123,7 @@ PluginComponent {
                 width: parent.width * quotaRow.fraction
                 height: parent.height
                 radius: parent.radius
-                color: root.ringColor(quotaRow.fraction)
+                color: root.liveColor(root.ringColor(quotaRow.fraction))
             }
         }
 
@@ -278,7 +278,7 @@ PluginComponent {
         return [
             account.status !== "active" && (account.disabled || account.unavailable || account.supported === false || account.headline)
                 ? tr(account.status) : "",
-            account.lastRequestAt ? tr("last request") + " " + ago(account.lastRequestAt) : "",
+            account.lastRequestAt && !account.headline ? tr("last request") + " " + ago(account.lastRequestAt) : "",
             formatCount(account.success || 0) + " " + tr("ok"),
             formatCount(account.failed || 0) + " " + tr("failed")
         ].filter(part => part !== "").join(" \u00b7 ");
@@ -515,7 +515,7 @@ PluginComponent {
             });
             add(account.authIndex, account.label || account.account, accountColors[account.authIndex], capped);
         });
-        add("other", tr("other"), otherColor, rest);
+        add("other", tr("unattributed"), otherColor, rest);
         return detail;
     }
 
@@ -526,6 +526,14 @@ PluginComponent {
         return Object.values(entry.accounts || {}).reduce((max, account) => Math.max(max, dayTokens(account)), dayTokens(entry));
     }
     readonly property real dayMax: activity.reduce((max, entry) => Math.max(max, dayValue(entry)), 0)
+    readonly property bool noUsage: usageStats[1].tokens === 0 && usageStats[1].requests === 0
+    readonly property bool hasUnattributed: activity.some(entry => daySegments(entry).some(part => part.color === otherColor))
+    // Slivers under 2% of the scale read as rendering faults; the day detail keeps them.
+    function visibleSegments(segments) {
+        var shown = segments.filter(part => part.value >= 0.02 * dayMax);
+        return shown.length > 0 || segments.length === 0 ? shown
+            : [segments.reduce((max, part) => part.value > max.value ? part : max)];
+    }
     readonly property bool hasBars: dayMax > 0 && activity.some(entry => daySegments(entry).length > 0)
 
     // Bar segments, bottom first: by account when the split exists, otherwise by model family.
@@ -602,17 +610,17 @@ PluginComponent {
             }
         }
         if (recorded > 0 && recorded < viewActivity.length)
-            week.label = tr("%1 of 7 days").replace("%1", recorded);
+            week.label = tr("7 days") + " \u00b7 " + tr("%1 recorded").replace("%1", recorded);
         return [today, week];
     }
 
     function formatTokens(n) {
         if (n >= 1e9)
-            return (Math.round(n / 1e8) / 10) + "B";
+            return (n / 1e9).toFixed(1) + "B";
         if (n >= 1e6)
-            return (Math.round(n / 1e5) / 10) + "M";
+            return (n / 1e6).toFixed(1) + "M";
         if (n >= 1e3)
-            return (Math.round(n / 100) / 10) + "k";
+            return (n / 1e3).toFixed(1) + "k";
         return String(n);
     }
 
@@ -633,6 +641,8 @@ PluginComponent {
     // that changes; then the pill follows it.
     property string activeProvider: pluginData.activeProvider || ""
     function followActiveProvider() {
+        if (interactionActive)
+            return;
         var newest = null;
         visibleProviders.forEach(p => {
             if (p.lastRequestEpoch != null && (!newest || p.lastRequestEpoch > newest.lastRequestEpoch))
@@ -693,7 +703,7 @@ PluginComponent {
             return "";
         var remainingMs = t - nowMs;
         if (remainingMs <= 0)
-            return tr("resets soon");
+            return tr("reset");
         var mins = Math.ceil(remainingMs / 60000);
         var days = Math.floor(mins / 1440);
         var hours = Math.floor((mins % 1440) / 60);
@@ -705,6 +715,10 @@ PluginComponent {
     }
 
     property bool receivedThisRun: false
+
+    function liveColor(color) {
+        return dataLive ? color : Theme.surfaceVariantText;
+    }
 
     function ringColor(fraction) {
         if (fraction >= 0.7)
@@ -721,20 +735,33 @@ PluginComponent {
         return remaining < 0 ? (pillProvider ? "\u2014" : "") + mark : Math.round(remaining * 100) + sign + mark;
     }
 
+    readonly property string pillTooltip: {
+        if (!pillProvider)
+            return statusText;
+        var state = remaining >= 0 ? Math.round(remaining * 100) + "% " + tr("remaining")
+                  : pillProvider.problem === true ? tr("no account is serving") : tr("no quota reported");
+        return pillProvider.provider + ": " + state + (dataLive ? "" : " · " + statusText);
+    }
+
+    function tabTooltip(provider) {
+        var state = typeof provider.aggregate === "number" ? Math.round(provider.aggregate * 100) + "% " + tr("remaining")
+                  : provider.problem === true ? tr("no account is serving") : tr("no quota reported");
+        return provider.provider + ": " + state;
+    }
+
     readonly property string pillIcon: quota === null ? "hourglass_empty"
         : pillProvider ? providerIcon(pillProvider.provider) : "cloud_off"
 
     readonly property string statusText: {
         if (quota === null)
             return tr("Loading…");
-        if (forceFetch && quotaProcess.running)
-            return tr("Refreshing…");
         var age = ago(shown ? shown.updatedAt : "");
-        if (quota.status !== "ok")
-            return (quota.error || tr("no data")) + (lastGood && age ? " · " + tr("updated") + " " + age : "");
-        if (quota.stale)
-            return tr("stale") + (age ? " · " + tr("updated") + " " + age : "");
-        return age ? tr("updated") + " " + age : "";
+        var text = quota.status !== "ok" ? (quota.error || tr("no data")) + (lastGood && age ? " · " + tr("updated") + " " + age : "")
+                 : quota.stale ? tr("stale") + (age ? " · " + tr("updated") + " " + age : "")
+                 : age ? tr("updated") + " " + age : "";
+        if (forceFetch && quotaProcess.running)
+            return dataLive || text === "" ? tr("Refreshing…") : tr("Refreshing…") + " · " + text;
+        return text;
     }
     readonly property bool needsSettings: quota !== null && (quota.status === "no-key" || quota.status === "no-endpoint")
     readonly property color statusColor: quota && quota.status !== "ok" ? Theme.error
@@ -792,6 +819,15 @@ PluginComponent {
         Row {
             spacing: Theme.spacingXS
             opacity: root.dataLive ? 1 : 0.6
+            Accessible.name: root.pillTooltip
+
+            DankTooltipV2 {
+                id: rowTip
+            }
+
+            HoverHandler {
+                onHoveredChanged: hovered ? rowTip.show(root.pillTooltip, parent, 0, 0, "bottom") : rowTip.hide()
+            }
 
             ProviderMark {
                 anchors.verticalCenter: parent.verticalCenter
@@ -828,6 +864,15 @@ PluginComponent {
         Column {
             spacing: Theme.spacingXS
             opacity: root.dataLive ? 1 : 0.6
+            Accessible.name: root.pillTooltip
+
+            DankTooltipV2 {
+                id: columnTip
+            }
+
+            HoverHandler {
+                onHoveredChanged: hovered ? columnTip.show(root.pillTooltip, parent, 0, 0, "right") : columnTip.hide()
+            }
 
             ProviderMark {
                 anchors.horizontalCenter: parent.horizontalCenter
@@ -843,7 +888,7 @@ PluginComponent {
 
 
             StyledText {
-                text: root.pillText("")
+                text: root.pillText("%")
                 visible: text !== ""
                 font.pixelSize: Theme.barTextSize(root.barThickness, root.barConfig?.fontScale, root.barConfig?.maximizeWidgetText)
                 color: Theme.surfaceText
@@ -880,8 +925,7 @@ PluginComponent {
                 target: root
                 property: "popoutHeight"
                 value: Math.round(Math.min(root.basePopoutHeight * 1.5,
-                                           Math.max(root.focusedIndex >= 0 ? root.basePopoutHeight : 0,
-                                                    popoutRoot.headerHeight + accountsColumn.height + Theme.spacingL)))
+                                           popoutRoot.headerHeight + accountsColumn.height + Theme.spacingL))
             }
             Connections {
                 target: popoutRoot.parentPopout
@@ -890,6 +934,18 @@ PluginComponent {
                     dayOverlay.day = null;
                     Qt.callLater(() => popoutRoot.forceActiveFocus());
                 }
+            }
+
+            Connections {
+                target: root
+                function onFocusedIndexChanged() {
+                    activityScroll.contentY = 0;
+                    dayOverlay.day = null;
+                }
+            }
+
+            DankTooltipV2 {
+                id: popoutTip
             }
 
             Keys.onPressed: event => {
@@ -943,18 +999,6 @@ PluginComponent {
                         spacing: Theme.spacingXS
 
                         DankActionButton {
-                            readonly property bool untracked: root.pillProvider !== null && root.isUntracked(root.pillProvider.provider)
-                            visible: root.pillProvider !== null
-                            buttonSize: 32
-                            iconName: untracked ? "notifications_off" : "notifications"
-                            iconColor: untracked ? Theme.surfaceVariantText : Theme.surfaceText
-                            tooltipText: root.pillProvider ? root.tr("Taskbar warnings") + " \u00b7 " + root.pillProvider.provider
-                                                             + ": " + (untracked ? root.tr("off") : root.tr("on")) : ""
-                            anchors.verticalCenter: parent.verticalCenter
-                            onClicked: if (root.pillProvider) root.toggleTracking(root.pillProvider.provider)
-                        }
-
-                        DankActionButton {
                             iconName: "refresh"
                             buttonSize: 32
                             tooltipText: root.tr("Refresh")
@@ -992,8 +1036,15 @@ PluginComponent {
                             width: tabContent.width + 2 * Theme.spacingM
                             radius: height / 2
                             color: focused ? Theme.withAlpha(Theme.primary, 0.16) : Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
-                            border.width: 1
-                            border.color: focused ? Theme.withAlpha(Theme.primary, 0.45) : Theme.outlineLight
+                            border.width: focused || activeFocus ? 2 : 1
+                            border.color: focused || activeFocus ? Theme.primary : Theme.outlineLight
+                            readonly property string tip: root.tabTooltip(modelData)
+                            activeFocusOnTab: true
+                            Accessible.role: Accessible.PageTab
+                            Accessible.name: tip
+                            Keys.onSpacePressed: root.focusPage(index)
+                            Keys.onReturnPressed: root.focusPage(index)
+                            Keys.onEnterPressed: root.focusPage(index)
 
                             Row {
                                 id: tabContent
@@ -1027,6 +1078,8 @@ PluginComponent {
 
                                 StyledText {
                                     text: providerTab.modelData.provider
+                                    width: Math.min(implicitWidth, 150)
+                                    elide: Text.ElideRight
                                     font.pixelSize: Theme.fontSizeMedium
                                     font.weight: Font.Medium
                                     color: providerTab.focused ? Theme.surfaceText : Theme.surfaceVariantText
@@ -1046,8 +1099,11 @@ PluginComponent {
 
                             MouseArea {
                                 anchors.fill: parent
+                                hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: root.focusPage(providerTab.index)
+                                onEntered: popoutTip.show(providerTab.tip, providerTab, 0, 0, "bottom")
+                                onExited: popoutTip.hide()
                             }
 
                             Rectangle {
@@ -1093,7 +1149,6 @@ PluginComponent {
                     height: Math.max(0, root.popoutHeight - popoutRoot.headerHeight)
                     contentHeight: accountsColumn.height
                     clip: true
-                    opacity: root.dataLive || root.focusedIndex < 0 ? 1 : 0.6
 
                     Column {
                         id: accountsColumn
@@ -1142,58 +1197,66 @@ PluginComponent {
                                 width: parent.width - 2 * Theme.spacingM
                                 spacing: Theme.spacingM
 
-                                Column {
+                                Item {
                                     width: parent.width
-                                    spacing: 2
+                                    height: Math.max(quotaTitle.height, quotaBell.height)
 
-                                    StyledText {
-                                        text: root.tr("Quota remaining")
-                                        font.pixelSize: Theme.fontSizeMedium
-                                        font.weight: Font.Medium
-                                        color: Theme.surfaceText
-                                    }
+                                    Column {
+                                        id: quotaTitle
+                                        anchors.left: parent.left
+                                        anchors.right: quotaBell.left
+                                        anchors.rightMargin: Theme.spacingS
+                                        spacing: 2
 
-                                    Row {
-                                        visible: root.headlineAccount !== null
-                                        width: parent.width
-                                        spacing: Theme.spacingXS
+                                        Row {
+                                            width: parent.width
+                                            spacing: Theme.spacingS
 
-                                        Rectangle {
-                                            readonly property string accountColor: root.headlineAccount ? root.cardAccountColor(root.headlineAccount.authIndex) : ""
-                                            visible: accountColor !== ""
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            width: 8
-                                            height: 8
-                                            radius: 4
-                                            color: accountColor || "transparent"
+                                            Rectangle {
+                                                readonly property string accountColor: root.headlineAccount ? root.cardAccountColor(root.headlineAccount.authIndex) : ""
+                                                visible: accountColor !== ""
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                width: 8
+                                                height: 8
+                                                radius: 4
+                                                color: accountColor || "transparent"
+                                            }
+
+                                            StyledText {
+                                                width: Math.min(implicitWidth, parent.width - 16)
+                                                text: root.headlineAccount ? root.headlineAccount.label || root.headlineAccount.account : root.tr("Quota remaining")
+                                                elide: Text.ElideRight
+                                                font.pixelSize: Theme.fontSizeMedium
+                                                font.weight: Font.Medium
+                                                color: Theme.surfaceText
+                                            }
                                         }
 
                                         StyledText {
-                                            width: Math.min(implicitWidth, parent.width - 12)
-                                            text: root.headlineAccount ? root.headlineAccount.label || root.headlineAccount.account : ""
+                                            visible: root.headlineAccount !== null
+                                            width: parent.width
                                             elide: Text.ElideRight
+                                            text: root.tr("Quota remaining") + (root.headlineAccount?.lastRequestAt
+                                                  ? " \u00b7 " + root.tr("last request") + " " + root.ago(root.headlineAccount.lastRequestAt) : "")
                                             font.pixelSize: Theme.fontSizeSmall
-                                            color: Theme.surfaceText
+                                            color: Theme.surfaceVariantText
                                         }
                                     }
 
-                                    StyledText {
-                                        visible: root.headlineAccount !== null
-                                        width: parent.width
-                                        wrapMode: Text.WordWrap
-                                        text: root.headlineAccount ? root.accountDetail(root.headlineAccount) : ""
-                                        font.pixelSize: Theme.fontSizeSmall
-                                        color: Theme.surfaceVariantText
+                                    DankActionButton {
+                                        id: quotaBell
+                                        anchors.right: parent.right
+                                        anchors.top: parent.top
+                                        readonly property bool untracked: root.pillProvider !== null && root.isUntracked(root.pillProvider.provider)
+                                        visible: root.pillProvider !== null
+                                        buttonSize: 32
+                                        iconName: untracked ? "notifications_off" : "notifications"
+                                        iconColor: untracked ? Theme.surfaceVariantText : Theme.surfaceText
+                                        tooltipText: root.pillProvider ? (untracked ? root.tr("Unmute taskbar warnings for %1") : root.tr("Mute taskbar warnings for %1"))
+                                                                         .replace("%1", root.pillProvider.provider) : ""
+                                        onClicked: if (root.pillProvider) root.toggleTracking(root.pillProvider.provider)
                                     }
 
-                                    StyledText {
-                                        visible: root.headlineAccount !== null && !!root.headlineAccount.error
-                                        width: parent.width
-                                        wrapMode: Text.WordWrap
-                                        text: root.headlineAccount ? root.headlineAccount.error || "" : ""
-                                        font.pixelSize: Theme.fontSizeSmall
-                                        color: Theme.surfaceVariantText
-                                    }
                                 }
 
                                 StyledText {
@@ -1213,6 +1276,29 @@ PluginComponent {
                                         width: quotaContent.width
                                         group: modelData
                                         emphasis: index === root.limitingGroup
+                                    }
+                                }
+
+                                Column {
+                                    visible: root.headlineAccount !== null
+                                    width: parent.width
+                                    spacing: 2
+
+                                    StyledText {
+                                        width: parent.width
+                                        wrapMode: Text.WordWrap
+                                        text: root.headlineAccount ? root.accountDetail(root.headlineAccount) : ""
+                                        font.pixelSize: Theme.fontSizeSmall
+                                        color: Theme.surfaceVariantText
+                                    }
+
+                                    StyledText {
+                                        visible: root.headlineAccount !== null && !!root.headlineAccount.error
+                                        width: parent.width
+                                        wrapMode: Text.WordWrap
+                                        text: root.headlineAccount ? root.headlineAccount.error || "" : ""
+                                        font.pixelSize: Theme.fontSizeSmall
+                                        color: Theme.surfaceVariantText
                                     }
                                 }
                             }
@@ -1292,32 +1378,19 @@ PluginComponent {
                                     }
 
                                     Rectangle {
-                                        visible: accountCard.accountColor !== ""
-                                        x: 5
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        width: 4
-                                        height: 22
-                                        radius: 2
-                                        color: accountCard.accountColor || "transparent"
-                                    }
-
-                                    Rectangle {
-                                        id: healthDot
+                                        id: accountDot
                                         anchors.left: parent.left
                                         anchors.leftMargin: Theme.spacingM
                                         anchors.verticalCenter: parent.verticalCenter
-                                        width: 8
+                                        width: accountCard.accountColor !== "" ? 8 : 0
                                         height: 8
                                         radius: 4
-                                        color: accountCard.modelData.disabled || accountCard.modelData.unavailable
-                                               || accountCard.modelData.supported === false
-                                               ? Theme.surfaceVariantText
-                                               : accountCard.modelData.status !== "active" ? Theme.error : Theme.success
+                                        color: accountCard.accountColor || "transparent"
                                     }
 
                                     StyledText {
-                                        anchors.left: healthDot.right
-                                        anchors.leftMargin: Theme.spacingS
+                                        anchors.left: accountDot.right
+                                        anchors.leftMargin: accountCard.accountColor !== "" ? Theme.spacingS : 0
                                         anchors.right: accountTags.left
                                         anchors.rightMargin: Theme.spacingS
                                         anchors.verticalCenter: parent.verticalCenter
@@ -1373,7 +1446,7 @@ PluginComponent {
                                         font.pixelSize: Theme.fontSizeSmall
                                         font.weight: Font.Medium
                                         font.features: ({ tnum: 1 })
-                                        color: root.ringColor(accountCard.worst)
+                                        color: root.liveColor(root.ringColor(accountCard.worst))
                                     }
 
                                     DankIcon {
@@ -1442,79 +1515,65 @@ PluginComponent {
                             color: Theme.surfaceVariantText
                         }
 
-                        Flickable {
-                            id: accountScroll
+                        Flow {
+                            id: accountChips
                             visible: root.showAccountSplit
                             width: accountsColumn.width - 2 * Theme.spacingM
                             anchors.horizontalCenter: parent.horizontalCenter
-                            height: 32
-                            contentWidth: Math.max(width, accountChips.width)
-                            contentHeight: height
-                            flickableDirection: Flickable.HorizontalFlick
-                            boundsBehavior: Flickable.StopAtBounds
-                            clip: true
+                            spacing: Theme.spacingS
 
-                            Row {
-                                id: accountChips
-                                spacing: Theme.spacingS
+                            Repeater {
+                                model: root.showAccountSplit ? [{ authIndex: "", label: root.tr("All accounts") }].concat(root.splitAccounts) : []
 
-                                Repeater {
-                                    model: root.showAccountSplit ? [{ authIndex: "", label: root.tr("All accounts") }].concat(root.splitAccounts) : []
+                                delegate: StyledRect {
+                                    id: accountChip
+                                    required property var modelData
+                                    readonly property bool selected: modelData.authIndex === root.selectedAccount
+                                    readonly property string chipLabel: modelData.label || modelData.account
+                                    height: 32
+                                    width: chipContent.width + 2 * Theme.spacingS
+                                    radius: height / 2
+                                    color: selected ? Theme.withAlpha(Theme.primary, 0.16) : Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
+                                    border.width: activeFocus ? 2 : 1
+                                    border.color: activeFocus ? Theme.primary : selected ? Theme.withAlpha(Theme.primary, 0.45) : Theme.outlineLight
+                                    activeFocusOnTab: true
+                                    Accessible.role: Accessible.RadioButton
+                                    Accessible.name: chipLabel
+                                    Accessible.checkable: true
+                                    Accessible.checked: selected
+                                    Accessible.onPressAction: root.selectedAccount = modelData.authIndex
+                                    Keys.onSpacePressed: root.selectedAccount = modelData.authIndex
+                                    Keys.onReturnPressed: root.selectedAccount = modelData.authIndex
+                                    Keys.onEnterPressed: root.selectedAccount = modelData.authIndex
 
-                                    delegate: StyledRect {
-                                        id: accountChip
-                                        required property var modelData
-                                        readonly property bool selected: modelData.authIndex === root.selectedAccount
-                                        readonly property string chipLabel: modelData.label || modelData.account
-                                        height: accountScroll.height
-                                        width: chipContent.width + 2 * Theme.spacingS
-                                        radius: height / 2
-                                        color: selected ? Theme.withAlpha(Theme.primary, 0.16) : Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
-                                        border.width: activeFocus ? 2 : 1
-                                        border.color: activeFocus ? Theme.primary : selected ? Theme.withAlpha(Theme.primary, 0.45) : Theme.outlineLight
-                                        activeFocusOnTab: true
-                                        Accessible.role: Accessible.RadioButton
-                                        Accessible.name: chipLabel
-                                        Accessible.checkable: true
-                                        Accessible.checked: selected
-                                        Accessible.onPressAction: root.selectedAccount = modelData.authIndex
-                                        Keys.onSpacePressed: root.selectedAccount = modelData.authIndex
-                                        Keys.onReturnPressed: root.selectedAccount = modelData.authIndex
-                                        Keys.onEnterPressed: root.selectedAccount = modelData.authIndex
-                                        onActiveFocusChanged: {
-                                            if (activeFocus)
-                                                accountScroll.contentX = Math.max(x + width - accountScroll.width, Math.min(x, accountScroll.contentX));
+                                    Row {
+                                        id: chipContent
+                                        anchors.centerIn: parent
+                                        spacing: Theme.spacingXS
+
+                                        Rectangle {
+                                            visible: accountChip.modelData.authIndex !== ""
+                                            width: 8
+                                            height: width
+                                            radius: width / 2
+                                            color: root.accountColors[accountChip.modelData.authIndex] || "transparent"
+                                            anchors.verticalCenter: parent.verticalCenter
                                         }
 
-                                        Row {
-                                            id: chipContent
-                                            anchors.centerIn: parent
-                                            spacing: Theme.spacingXS
-
-                                            Rectangle {
-                                                visible: accountChip.modelData.authIndex !== ""
-                                                width: 8
-                                                height: width
-                                                radius: width / 2
-                                                color: root.accountColors[accountChip.modelData.authIndex] || "transparent"
-                                                anchors.verticalCenter: parent.verticalCenter
-                                            }
-
-                                            StyledText {
-                                                text: accountChip.chipLabel
-                                                elide: Text.ElideRight
-                                                width: Math.min(implicitWidth, 160)
-                                                font.pixelSize: Theme.fontSizeSmall
-                                                color: Theme.surfaceText
-                                                anchors.verticalCenter: parent.verticalCenter
-                                            }
+                                        StyledText {
+                                            text: accountChip.chipLabel
+                                            elide: Text.ElideRight
+                                            width: Math.min(implicitWidth, accountChips.width - 2 * Theme.spacingS - 12)
+                                            font.pixelSize: Theme.fontSizeSmall
+                                            color: Theme.surfaceText
+                                            anchors.verticalCenter: parent.verticalCenter
                                         }
+                                    }
 
-                                        MouseArea {
-                                            anchors.fill: parent
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: root.selectedAccount = accountChip.modelData.authIndex
-                                        }
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: root.selectedAccount = accountChip.modelData.authIndex
                                     }
                                 }
                             }
@@ -1542,8 +1601,15 @@ PluginComponent {
                                     color: Theme.surfaceText
                                 }
 
+                                StyledText {
+                                    visible: root.noUsage
+                                    text: root.usageStats[1].missing ? root.tr("no data") : root.tr("no usage in 7 days")
+                                    font.pixelSize: Theme.fontSizeSmall
+                                    color: Theme.surfaceVariantText
+                                }
+
                                 Repeater {
-                                    model: root.usageStats
+                                    model: root.noUsage ? [] : root.usageStats
 
                                     delegate: DetailLine {
                                         required property var modelData
@@ -1555,11 +1621,21 @@ PluginComponent {
                                     }
                                 }
 
+                                StyledText {
+                                    visible: root.hasBars
+                                    width: parent.width
+                                    horizontalAlignment: Text.AlignRight
+                                    topPadding: Theme.spacingXS
+                                    text: root.tr("top of scale") + " " + (root.usageHasTokens ? root.formatTokens(root.dayMax) : root.formatCount(root.dayMax))
+                                    font.pixelSize: Theme.fontSizeSmall - 1
+                                    color: Theme.surfaceVariantText
+                                }
+
                                 Row {
                                     id: barsRow
                                     visible: root.hasBars
                                     width: parent.width
-                                    topPadding: Theme.spacingXS
+                                    opacity: root.dataLive ? 1 : 0.5
 
                                     Repeater {
                                         model: root.activity
@@ -1569,8 +1645,9 @@ PluginComponent {
                                             required property var modelData
                                             readonly property var segments: root.daySegments(modelData)
                                             readonly property var bars: {
-                                                var heights = root.segmentHeights(segments.map(part => part.value), root.dayMax, 80, 1);
-                                                return segments.map((part, i) => ({ color: part.color, h: heights[i] })).reverse();
+                                                var shown = root.visibleSegments(segments);
+                                                var heights = root.segmentHeights(shown.map(part => part.value), root.dayMax, 80, 1);
+                                                return shown.map((part, i) => ({ color: part.color, h: heights[i] })).reverse();
                                             }
                                             readonly property bool isToday: modelData.date === root.todayDate
                                             readonly property bool missing: root.viewEntry(modelData).missing === true
@@ -1579,14 +1656,35 @@ PluginComponent {
                                             spacing: 4
 
                                             Item {
+                                                id: dayPlot
                                                 width: parent.width
                                                 height: 80
+                                                activeFocusOnTab: true
+                                                Accessible.role: Accessible.Button
+                                                Accessible.name: dayLabel.text
+                                                onActiveFocusChanged: {
+                                                    if (activeFocus)
+                                                        dayOverlay.day = dayColumn;
+                                                    else if (dayOverlay.day === dayColumn)
+                                                        dayOverlay.day = null;
+                                                }
 
                                                 Rectangle {
                                                     anchors.fill: parent
                                                     radius: 4
                                                     visible: dayOverlay.day === dayColumn
                                                     color: Theme.withAlpha(Theme.surfaceText, 0.08)
+                                                    border.width: dayPlot.activeFocus ? 2 : 0
+                                                    border.color: Theme.primary
+                                                }
+
+                                                StyledText {
+                                                    visible: dayColumn.missing
+                                                    anchors.bottom: parent.bottom
+                                                    anchors.horizontalCenter: parent.horizontalCenter
+                                                    text: "\u2013"
+                                                    font.pixelSize: Theme.fontSizeSmall
+                                                    color: Theme.surfaceVariantText
                                                 }
 
                                                 Rectangle {
@@ -1633,6 +1731,7 @@ PluginComponent {
                                             }
 
                                             StyledText {
+                                                id: dayLabel
                                                 anchors.horizontalCenter: parent.horizontalCenter
                                                 text: {
                                                     var d = new Date(dayColumn.modelData.date + "T00:00:00");
@@ -1643,6 +1742,25 @@ PluginComponent {
                                                 color: dayColumn.isToday ? Theme.surfaceText : Theme.surfaceVariantText
                                             }
                                         }
+                                    }
+                                }
+
+                                Row {
+                                    visible: root.hasBars && root.hasUnattributed
+                                    spacing: Theme.spacingXS
+
+                                    Rectangle {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: 8
+                                        height: 8
+                                        radius: 1
+                                        color: root.otherColor
+                                    }
+
+                                    StyledText {
+                                        text: root.tr("unattributed: usage not reported per account")
+                                        font.pixelSize: Theme.fontSizeSmall - 1
+                                        color: Theme.surfaceVariantText
                                     }
                                 }
                             }
@@ -1664,7 +1782,7 @@ PluginComponent {
                                 spacing: Theme.spacingS
 
                                 StyledText {
-                                    text: root.tr("Models") + " \u00b7 " + root.usageStats[1].label
+                                    text: root.tr("Models") + " \u00b7 " + root.tr("7 days")
                                     font.pixelSize: Theme.fontSizeMedium
                                     font.weight: Font.Medium
                                     color: Theme.surfaceText
@@ -1682,16 +1800,36 @@ PluginComponent {
                                         spacing: 4
 
                                         Item {
+                                            id: familyHeader
                                             width: parent.width
-                                            height: familyLine.height
+                                            height: familyLine.height + 4
+                                            activeFocusOnTab: familyRow.multi
+                                            Accessible.role: Accessible.Button
+                                            Accessible.name: familyLine.name
+                                            Keys.onSpacePressed: root.toggleFamily(familyRow.modelData.family)
+                                            Keys.onReturnPressed: root.toggleFamily(familyRow.modelData.family)
+                                            Keys.onEnterPressed: root.toggleFamily(familyRow.modelData.family)
+
+                                            Rectangle {
+                                                anchors.fill: parent
+                                                anchors.margins: -2
+                                                radius: 4
+                                                visible: familyHeader.activeFocus
+                                                color: "transparent"
+                                                border.width: 2
+                                                border.color: Theme.primary
+                                            }
 
                                             DetailLine {
                                                 id: familyLine
                                                 anchors.left: parent.left
                                                 anchors.right: familyChevron.left
+                                                anchors.verticalCenter: parent.verticalCenter
                                                 name: familyRow.multi ? familyRow.modelData.family : familyRow.modelData.versions[0].name
                                                 value: root.formatTokens(familyRow.modelData.viewTotal)
                                                 strong: true
+                                                showSwatch: !root.showAccountSplit
+                                                swatch: familyRow.modelData.color
                                             }
 
                                             DankIcon {
@@ -1713,20 +1851,6 @@ PluginComponent {
                                             }
                                         }
 
-                                        Rectangle {
-                                            width: parent.width
-                                            height: 6
-                                            radius: 3
-                                            color: Theme.surfaceVariant
-
-                                            Rectangle {
-                                                width: parent.width * Math.min(1, familyRow.modelData.viewTotal / root.modelFamilies[0].total)
-                                                height: parent.height
-                                                radius: parent.radius
-                                                color: familyRow.modelData.color
-                                            }
-                                        }
-
                                         Column {
                                             visible: familyRow.expanded
                                             width: parent.width
@@ -1742,8 +1866,8 @@ PluginComponent {
 
                                                 delegate: DetailLine {
                                                     required property var modelData
-                                                    width: modelsContent.width - familyChevron.width
-                                                    indent: Theme.spacingM
+                                                    width: modelsContent.width - 16
+                                                    indent: root.showAccountSplit ? Theme.spacingM : Theme.spacingM + 8 + Theme.spacingXS
                                                     name: modelData.name
                                                     value: root.formatTokens(modelData.total)
                                                 }
@@ -1787,7 +1911,8 @@ PluginComponent {
                 x: position.x
                 y: position.y
                 width: Math.min(popoutRoot.width - 2 * Theme.spacingM, 280)
-                height: dayContents.height + 2 * Theme.spacingS
+                height: Math.min(dayContents.height + 2 * Theme.spacingS, popoutRoot.height - 2 * Theme.spacingS)
+                clip: true
                 radius: Theme.cornerRadius
                 color: Theme.surfaceContainerHighest ?? Theme.surfaceContainerHigh
                 border.width: 1

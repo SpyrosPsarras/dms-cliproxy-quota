@@ -27,7 +27,7 @@ assert.equal(card('', {a1: true}), true, 'a manual expand survives the refresh')
 assert.equal(card('provider API failed: 429', {a1: false}), false, 'a manual collapse survives the refresh');
 const follow = '(function() {' + source.match(/function followActiveProvider\(\) \{([\s\S]*?)\n    \}/)[1] + '})()';
 const saved = {};
-const root = {visibleProviders: [{provider: 'claude', lastRequestEpoch: 100}, {provider: 'codex', lastRequestEpoch: 200}, {provider: 'idle', lastRequestEpoch: null}],
+const root = {interactionActive: false, visibleProviders: [{provider: 'claude', lastRequestEpoch: 100}, {provider: 'codex', lastRequestEpoch: 200}, {provider: 'idle', lastRequestEpoch: null}],
     activeProvider: 'codex', focusedProvider: 'claude', pluginService: {savePluginData: (_, k, v) => { saved[k] = v; }}};
 const run = () => vm.runInNewContext(follow, root);
 run();
@@ -41,8 +41,15 @@ root.focusedProvider = 'idle';
 root.visibleProviders[1].lastRequestEpoch = 400;
 run();
 assert.equal(root.focusedProvider, 'codex', 'a request on another provider moves the focus');
+root.interactionActive = true;
+root.visibleProviders[0].lastRequestEpoch = 500;
+run();
+assert.equal(root.focusedProvider, 'codex', 'the provider never switches under an open popout');
+root.interactionActive = false;
+run();
+assert.equal(root.focusedProvider, 'claude', 'it follows once the popout closes');
 root.visibleProviders = [];
 run();
-assert.equal(root.focusedProvider, 'codex', 'no data keeps the focus');
+assert.equal(root.focusedProvider, 'claude', 'no data keeps the focus');
 console.log('PASS: the quota card names its account, the list holds the others, quota errors expand, focus follows the active provider');
 NODE

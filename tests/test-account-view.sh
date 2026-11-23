@@ -20,7 +20,7 @@ const yesterday = {date: '2026-11-18', requests: 5, failed: 0, tokens: {small: 1
 }};
 const older = {date: '2026-11-17', requests: 2, failed: 0, tokens: {small: 30}};
 const context = vm.createContext({pillProvider: {accounts}, activity: [older, yesterday, today],
-    selectedAccount: second, todayDate, tr: key => key, Theme: {}});
+    selectedAccount: second, todayDate, tr: key => key === '%1 recorded' ? '%1 recorded' : key, Theme: {}});
 context.root = context;
 function block(name) {
     const match = source.match(new RegExp(`^    readonly property (?:var|bool|string|int) ${name}: \\{([\\s\\S]*?)\\n    \\}`, 'm'));
@@ -40,7 +40,7 @@ Object.defineProperty(context, 'viewActivity', {get() {
 }});
 assert.deepEqual(plain(block('usageStats')), [
     {label: 'Today', tokens: 60, requests: 4, missing: false},
-    {label: '2 of 7 days', tokens: 110, requests: 6, missing: false},
+    {label: '7 days · 2 recorded', tokens: 110, requests: 6, missing: false},
 ], 'usage stats should count only the selected account, over the days it has history');
 assert.deepEqual(plain(context.viewEntry(today)), {
     date: todayDate, requests: 3, failed: 1, tokens: {small: 20, large: 40}, missing: false,
@@ -62,7 +62,7 @@ const activityBefore = context.activity;
 context.activity = [yesterday, {date: todayDate, requests: 0, failed: 0, tokens: {}, missing: true}];
 assert.deepEqual(plain(block('usageStats')).map(({missing, requests}) => [missing, requests]), [[true, 0], [false, 5]],
     'today without history is missing, not a measured zero');
-assert.equal(plain(block('usageStats'))[1].label, '%1 of 7 days'.replace('%1', 1), 'a partial week says how many days it covers');
+assert.equal(plain(block('usageStats'))[1].label, '7 days · 1 recorded', 'a partial week says how many days it covers');
 context.activity = [{date: todayDate, requests: 0, failed: 0, tokens: {}}];
 assert.deepEqual(plain(block('usageStats')).map(({missing}) => missing), [false, false], 'a measured zero stays zero');
 assert.equal(plain(block('usageStats'))[1].label, '7 days', 'a fully recorded week keeps its plain label');
@@ -177,7 +177,7 @@ test('a split day lists each account with its models, then the unattributed rest
     assert.deepEqual(groups(detail), [
         [first, 'Account A', context.accountPalette[0], 37, [['X', 31], ['Y', 6]]],
         [second, 'Label B', context.accountPalette[1], 6, [['X', 5], ['Z', 1]]],
-        ['other', 'other', '#other', 535, [['X', 464], ['Y', 64], ['Z', 7]]],
+        ['other', 'unattributed', '#other', 535, [['X', 464], ['Y', 64], ['Z', 7]]],
     ]);
     assert.equal(context.dayRows(deployDay).groups[2].models[2].color, '#other', 'a model outside the families gets the neutral colour');
 });
@@ -226,7 +226,7 @@ test('the shared day scale covers account totals when the provider reports fewer
 
 test('a day before the account split is all "other" while the split shows', () => {
     const detail = context.dayRows({...deployDay, accounts: undefined});
-    assert.deepEqual(groups(detail), [['other', 'other', '#other', 578, [['X', 500], ['Y', 70], ['Z', 8]]]]);
+    assert.deepEqual(groups(detail), [['other', 'unattributed', '#other', 578, [['X', 500], ['Y', 70], ['Z', 8]]]]);
 });
 
 test('without an account split a day is one unnamed group', () => {
@@ -238,6 +238,14 @@ test('without an account split a day is one unnamed group', () => {
     } finally {
         context.pillProvider = {accounts};
     }
+});
+
+test('slivers under 2% of the scale leave the bars but never empty a day', () => {
+    runFunction('visibleSegments');
+    context.dayMax = 1000;
+    assert.deepEqual(plain(context.visibleSegments([{value: 900}, {value: 10}, {value: 90}])), [{value: 900}, {value: 90}]);
+    assert.deepEqual(plain(context.visibleSegments([{value: 5}, {value: 8}])), [{value: 8}], 'a tiny day keeps its largest part');
+    assert.deepEqual(plain(context.visibleSegments([])), []);
 });
 
 test('bar heights stay proportional, keep tiny parts visible and fit the plot with gaps', () => {
@@ -278,7 +286,8 @@ test('the status line says what the numbers are', () => {
     Object.assign(context, {forceFetch: false, quotaProcess: {running: false}, formatAge: iso => iso ? '5m' : ''});
     runFunction('ago');
     const status = (quota, lastGood = null) => {
-        Object.assign(context, {quota, lastGood, shown: quota && quota.status === 'ok' ? quota : lastGood});
+        Object.assign(context, {quota, lastGood, shown: quota && quota.status === 'ok' ? quota : lastGood,
+            dataLive: !!quota && quota.status === 'ok' && !quota.stale});
         return block('statusText');
     };
     const good = {status: 'ok', stale: false, updatedAt: 't'};
@@ -308,6 +317,8 @@ test('the status line says what the numbers are', () => {
     context.forceFetch = true;
     context.quotaProcess.running = true;
     assert.equal(status(good), 'Refreshing…');
+    assert.equal(status({status: 'unreachable', error: 'proxy unreachable'}, good), 'Refreshing… · proxy unreachable · updated 5m ago',
+        'a refresh keeps the reason the numbers are not live');
 });
 
 test('bars are split by account when possible, otherwise by model family', () => {

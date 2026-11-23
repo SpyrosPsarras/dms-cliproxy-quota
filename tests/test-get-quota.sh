@@ -231,6 +231,17 @@ else
     fail "supported:false provider flagged as problem"
 fi
 
+echo "=== Test 3f: an account in a non-active status never sets the headline ==="
+setup
+jq '.accounts[1].status = "error"' "$FIXTURES/usage-multi-account.json" > "$TMP/error-status.json"
+export SHIM_BODY_FILE="$TMP/error-status.json"
+OUT="$(run_script)"
+if jq -e '[.providers[0].accounts[].headline] == [true, false]' <<<"$OUT" >/dev/null; then
+    pass "the serving account wins over a newer one in error"
+else
+    fail "error-status headline: $(jq -c '[.providers[0].accounts[].headline]' <<<"$OUT")"
+fi
+
 echo "=== Test 3c: aggregateGroups carry the winning account's group view ==="
 setup
 export SHIM_BODY_FILE="$FIXTURES/usage-multi-account.json"

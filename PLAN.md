@@ -90,29 +90,29 @@ and must not copy that mapping.
 **Popout — a carousel, one page per provider.** Arrows at the top navigate; the page
 order is the server's order. Each page:
 
-- Quota remaining: the aggregate's account (the live account that took the
-  newest request, or the worst live account when none reports a request time)
-  by name, with its `status` when not active, `lastRequestAt`,
-  `success`/`failed` and `error`; then one row per group of that account,
-  reset countdown from `resetTime`, a bar. The group equal to the aggregate is
-  bold. Pace shows only when over pace.
+- Quota card: titled with the aggregate's account (the live account that took
+  the newest request, or the worst live account when none reports a request
+  time) and its `lastRequestAt`, with the provider's warnings bell; one row
+  per group of that account, reset countdown from `resetTime`, a bar; then
+  `success`/`failed` and `error`. The group equal to the aggregate is bold.
+  Pace shows only when over pace.
 - Account list ("Other accounts" when the quota card names one), one line
   each, expandable: every account except the one on the quota card, including disabled
-  ones labelled as disabled. The line: health dot, masked label, state tags,
+  ones labelled as disabled. The line: account-colour dot, masked label, state tags,
   lowest remaining percentage. Expanded: `status` when not active,
   `lastRequestAt`, `success`/`failed` counters, `error`, per-group bars.
   Disabled and unavailable accounts render but never feed the aggregate.
-  Unhealthy accounts get a red border; account colour is a small bar.
+  Unhealthy accounts get a red border.
 - Usage: today's and the week's tokens and requests, tokens per day over the
   last seven calendar days, tokens per model. When per-account tokens are
   available for a provider with multiple accounts, day bars stack by account
-  (unattributed usage as "other") and account chips filter the section.
+  (unattributed usage grey, with a key) and account chips filter the section.
   Hovering a day lists its tokens per account with each account's models.
 - Header: status line (loading, refreshing, `cache.updatedAt` age, stale, or the
-  fetch error with the age of the last good data), the bell, and a refresh
+  fetch error with the age of the last good data) and a refresh
   button hitting `?refresh=1` (server rate-limits that to its cache TTL, so a
   mashed button degrades to a normal read). A failed fetch keeps the last good
-  data on screen, dimmed.
+  data on screen with muted colours.
 
 **Taskbar pill.** Ring = the focused provider's aggregate. If the focused provider has
 no groups, a glyph instead of a ring. A provider has a problem (dot on its tab)

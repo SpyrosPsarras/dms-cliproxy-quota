@@ -41,27 +41,32 @@ freedesktop Secret Service vault.
   never dressed up as current. Error text stays in the popout, never on the
   bar.
 - **Popout** — a status line (loading, refreshing, updated, stale, or the
-  fetch error) with the taskbar-warnings bell and a refresh button, then one
+  fetch error) and a refresh button, then one
   tab per provider with its icon, name and remaining percentage, wrapping to
   a second row when they do not fit; click a tab or press ←/→.
   Each provider page reads top to bottom:
-  - **Quota remaining** — the account these numbers come from, with its last
-    request, ok/failed counters and any error, then one row per quota group
-    with its reset countdown and a bar. The group that sets the taskbar
-    number is in bold. A pace warning appears only when a group is being used
-    faster than its window.
-  - **Other accounts** — one line per remaining account: health dot, name, state tags and its
+  - **Quota card** — titled with the account these numbers come from and
+    its last request, with the provider's taskbar-warnings bell; one row per
+    quota group with its reset countdown and a bar; then the account's
+    ok/failed counters and any error. The group that sets the taskbar number
+    is in bold. A pace warning appears only when a group is being used faster
+    than its window.
+  - **Other accounts** — one line per remaining account: colour dot, name,
+    state tags and its
     lowest remaining percentage. Click to see last request, ok/failed
     counters, any error and per-group bars. Accounts with an error open by
     default; what you open or close stays that way across refreshes.
     Disabled accounts are listed and labelled, never silently dropped; an
     account whose provider reports no quota says "no quota reported" instead
     of pretending 0%.
-  - **Usage** — today's and the week's tokens and requests, tokens per day
-    for the last seven calendar days, and tokens per model.
+  - **Usage** — today's and the week's tokens and requests ("7 days · 6
+    recorded" when some days have no history), tokens per day for the last
+    seven calendar days with the top of the scale and a dash for a day
+    without history, and tokens per model. Tabs, days and model rows work
+    from the keyboard too.
 
-  When a fetch fails, the last good numbers stay on screen, dimmed, with the
-  error and their age in the status line.
+  When a fetch fails, the last good numbers stay on screen with muted colours,
+  and the status line gives the error and their age.
 - **Tokens per day and per model.** When the bridge reports per-model token
   counters (pi-bridge 0.10.0 or newer, contract v2 `models` field) each
   provider page charts tokens per day, stacked by model, and lists tokens per
@@ -77,7 +82,7 @@ freedesktop Secret Service vault.
   and account chips filter the usage section to one account. Hovering a day
   lists that day's tokens per account with each account's models. Requires
   pi-bridge 0.12.0 or newer; usage the bridge did not attribute to an account
-  shows as "other".
+  shows as grey "unattributed", with a key under the chart.
 - **Providers are data, not code.** Group ids, labels, and providers come
   from the bridge and are never used in rendering or aggregation decisions;
   the one exception is picking an icon, and an unknown provider gets a

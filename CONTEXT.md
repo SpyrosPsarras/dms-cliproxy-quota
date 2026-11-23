@@ -22,8 +22,8 @@ health colours. It applies only to providers with at least two accounts
 and only after per-account token data arrives.
 
 **Live account**:
-An account that is not `disabled`, not `unavailable`, is `supported`, and
-reports at least one group. Only live accounts feed the aggregate.
+An account that is not `disabled`, not `unavailable`, is `supported`, has
+`status` "active", and reports at least one group. Only live accounts feed the aggregate.
 
 **Troubled account**:
 An account that is not serving: `disabled`, `unavailable`, or — when
