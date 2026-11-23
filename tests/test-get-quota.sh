@@ -289,6 +289,14 @@ if [ "$(wc -l < "$TMP/shim/calls.log")" = "1" ]; then
 else
     fail "cache miss: $(wc -l < "$TMP/shim/calls.log") HTTP calls"
 fi
+CACHE_OUT=$(find "$TMP/cache" -name 'output-*.json')
+jq -c '. + {origin: "legacy"} | del(.source)' "$CACHE_OUT" > "$CACHE_OUT.tmp" && mv "$CACHE_OUT.tmp" "$CACHE_OUT"
+HIT=$(run_script)
+if [ "$(jq -r '.source | length' <<<"$HIT")" = "16" ] && [ "$(jq -r 'has("origin")' <<<"$HIT")" = "false" ]; then
+    pass "a cache hit carries the proxy id and never an older origin field"
+else
+    fail "cache hit shape: $HIT"
+fi
 run_script --force >/dev/null
 if [ "$(wc -l < "$TMP/shim/calls.log")" = "2" ]; then
     pass "--force bypasses the local cache"
@@ -491,6 +499,17 @@ else
 fi
 if [ "$(jq -r '.stale' <<<"$OUT")" = "true" ] && [ "$(jq -r '.providers | length' <<<"$OUT")" = "0" ]; then
     pass "unreachable carries no providers and is stale"
+else
+    fail "unreachable shape wrong: $OUT"
+fi
+SOURCE=$(printf '%s' "https://proxy.test" | sha256sum | cut -c1-16)
+CRED_URL=$(printf 'https://%s:%s@%s' user s3cr3t proxy.test/v1)
+NOKEY=$(CLIPROXY_QUOTA_PI_CONFIG=/nonexistent CLIPROXY_QUOTA_ENDPOINT="$CRED_URL" run_script)
+if [ "$(jq -r '.source' <<<"$OUT")" = "$SOURCE" ] \
+   && [ "$(jq -r '.source' <<<"$(SHIM_FAIL='' run_script --force)")" = "$SOURCE" ] \
+   && [ "$(jq -r '.status' <<<"$NOKEY")" = "no-key" ] && [ "$(jq -r '.source | length' <<<"$NOKEY")" = "16" ] \
+   && ! grep -q s3cr3t <<<"$NOKEY"; then
+    pass "every result names its proxy by an opaque id, also before the key resolves, never with credentials"
 else
     fail "unreachable shape wrong: $OUT"
 fi

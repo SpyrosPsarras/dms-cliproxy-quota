@@ -13,8 +13,8 @@ FORCE=0
 [ "${1:-}" = "--force" ] && FORCE=1
 
 emit_bare() {
-    jq -cn --arg status "$1" --arg error "$2" \
-        '{status: $status, error: $error, stale: true, anyProblem: false, drift: false, providers: []}'
+    jq -cn --arg status "$1" --arg error "$2" --arg source "${source_id:-}" \
+        '{status: $status, error: $error, source: $source, stale: true, anyProblem: false, drift: false, providers: []}'
     exit 0
 }
 
@@ -50,19 +50,21 @@ if [ -z "$key" ]; then
 fi
 
 [ -n "$endpoint" ] || emit_bare "no-endpoint" "no endpoint configured"
+origin=$(printf '%s' "$endpoint" | sed -E 's#^([Hh][Tt][Tt][Pp][Ss]?://[^/?\#]+).*#\1#')
+# An opaque id for the proxy: the URL can carry credentials.
+source_id=$(printf '%s' "$origin" | sha256sum | cut -c1-16)
 [ -n "$key" ] || emit_bare "no-key" "key unavailable"
 
-origin=$(printf '%s' "$endpoint" | sed -E 's#^([Hh][Tt][Tt][Pp][Ss]?://[^/?\#]+).*#\1#')
 url="${origin}${ROUTE}"
 [ "$FORCE" = "1" ] && url="${url}?refresh=1"
 
-CACHE_FILE="$CACHE_DIR/output-$(printf '%s' "$origin" | sha256sum | cut -c1-16).json"
+CACHE_FILE="$CACHE_DIR/output-$source_id.json"
 
 if [ "$FORCE" = "0" ] && [ -f "$CACHE_FILE" ]; then
     now=$(date +%s)
     mtime=$(stat -c %Y "$CACHE_FILE" 2>/dev/null || stat -f %m "$CACHE_FILE")
     if [ $((now - mtime)) -lt "$CACHE_TTL_SECONDS" ]; then
-        cat "$CACHE_FILE"
+        jq -c --arg source "$source_id" 'del(.origin) | .source = $source' "$CACHE_FILE"
         exit 0
     fi
 fi
@@ -93,7 +95,7 @@ if ! jq -e '.schemaVersion and (.accounts | type == "array")' "$body_file" >/dev
     emit_bare "http-error" "unexpected payload shape"
 fi
 
-HIST_FILE="$CACHE_DIR/history-$(printf '%s' "$origin" | sha256sum | cut -c1-16).jsonl"
+HIST_FILE="$CACHE_DIR/history-$source_id.jsonl"
 now_ts=$(date +%s)
 hist_writable=1
 if command -v flock >/dev/null 2>&1; then
@@ -158,7 +160,7 @@ activity=$(jq -s '
     })
     | from_entries' "$HIST_FILE" 2>/dev/null) || activity="{}"
 
-jq -c --arg contractLatest "${contract_latest:-}" --argjson contract "$CONTRACT" --argjson activity "$activity" '
+jq -c --arg source "$source_id" --arg contractLatest "${contract_latest:-}" --argjson contract "$CONTRACT" --argjson activity "$activity" '
     def live: (.disabled | not) and (.unavailable | not) and .supported
               and ((.groups // []) | length > 0);
     def bottleneck: [.groups[].remainingFraction] | min;
@@ -189,6 +191,7 @@ jq -c --arg contractLatest "${contract_latest:-}" --argjson contract "$CONTRACT"
     {
         status: "ok",
         error: "",
+        source: $source,
         stale: (.cache.stale // false),
         updatedAt: (.cache.updatedAt // .generatedAt // null),
         generatedAt: (.generatedAt // null),

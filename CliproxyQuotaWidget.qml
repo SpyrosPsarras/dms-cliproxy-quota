@@ -8,63 +8,174 @@ import "translations.js" as Tr
 PluginComponent {
     id: root
 
-    component AccountOutline: Rectangle {
-        required property color accountColor
+    component QuotaRing: Canvas {
+        property real fraction: 0
+        renderStrategy: Canvas.Cooperative
+        onFractionChanged: requestPaint()
+        onWidthChanged: requestPaint()
 
-        radius: 3
-        color: "transparent"
-        border.width: 2
-        border.color: accountColor
+        onPaint: {
+            var ctx = getContext("2d");
+            ctx.reset();
+            var cx = width / 2, cy = height / 2, r = width * 0.375, lw = width * 0.125;
 
-        Rectangle {
+            ctx.beginPath();
+            ctx.arc(cx, cy, r, 0, 2 * Math.PI);
+            ctx.lineWidth = lw;
+            ctx.strokeStyle = Theme.surfaceVariant;
+            ctx.stroke();
+
+            if (fraction > 0) {
+                ctx.beginPath();
+                ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + 2 * Math.PI * Math.min(fraction, 1));
+                ctx.lineWidth = lw;
+                ctx.strokeStyle = root.ringColor(fraction);
+                ctx.lineCap = "round";
+                ctx.stroke();
+            }
+        }
+    }
+
+    component ProviderMark: Item {
+        readonly property string iconSource: root.pillProvider ? root.providerIconSource(root.pillProvider.provider) : ""
+        width: root.iconSize
+        height: root.iconSize
+
+        Image {
             anchors.fill: parent
-            anchors.margins: 2
-            radius: 1
-            color: "transparent"
-            border.width: 1
-            border.color: Theme.surfaceContainer
+            visible: parent.iconSource !== ""
+            source: parent.iconSource
+            sourceSize.width: 2 * root.iconSize
+            sourceSize.height: 2 * root.iconSize
+            fillMode: Image.PreserveAspectFit
+            asynchronous: true
+        }
+
+        DankIcon {
+            anchors.centerIn: parent
+            visible: parent.iconSource === ""
+            name: root.pillIcon
+            size: root.iconSize
+            color: Theme.surfaceVariantText
         }
     }
 
-    component DayDetailText: StyledText {
-        font.pixelSize: Theme.fontSizeSmall - 1
-        font.features: ({ tnum: 1 })
-        textFormat: Text.PlainText
-        color: Theme.surfaceText
-    }
+    component QuotaRow: Column {
+        id: quotaRow
+        property var group: ({})
+        property bool emphasis: false
+        readonly property real fraction: Math.max(0, Math.min(1, group.remainingFraction || 0))
+        readonly property real overPace: {
+            var ws = group.windowSeconds;
+            var remainMs = new Date(group.resetTime || "").getTime() - root.nowMs;
+            if (!ws || isNaN(remainMs) || remainMs < 0)
+                return 0;
+            var elapsed = Math.max(0, Math.min(1, 1 - remainMs / (ws * 1000)));
+            return Math.round(((1 - fraction) - elapsed) * 100);
+        }
+        spacing: 4
 
-    component DayDetailLabel: Row {
-        id: detailLabel
-        required property string name
-        required property real tokens
-        required property real availableWidth
-        required property color swatchColor
-        required property bool muted
-        spacing: Theme.spacingXS
+        Item {
+            width: parent.width
+            height: rowPercent.implicitHeight
+
+            StyledText {
+                anchors.left: parent.left
+                anchors.right: rowReset.left
+                anchors.rightMargin: Theme.spacingS
+                anchors.verticalCenter: parent.verticalCenter
+                text: quotaRow.group.label || quotaRow.group.id || ""
+                elide: Text.ElideRight
+                font.pixelSize: Theme.fontSizeSmall
+                font.weight: quotaRow.emphasis ? Font.DemiBold : Font.Normal
+                color: Theme.surfaceText
+            }
+
+            StyledText {
+                id: rowReset
+                anchors.right: rowPercent.left
+                anchors.rightMargin: Theme.spacingS
+                anchors.verticalCenter: parent.verticalCenter
+                text: root.formatCountdown(quotaRow.group.resetTime)
+                font.pixelSize: Theme.fontSizeSmall
+                color: Theme.surfaceVariantText
+            }
+
+            StyledText {
+                id: rowPercent
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                text: Math.round(quotaRow.fraction * 100) + "%"
+                font.pixelSize: quotaRow.emphasis ? Theme.fontSizeMedium : Theme.fontSizeSmall
+                font.weight: quotaRow.emphasis ? Font.Bold : Font.Medium
+                font.features: ({ tnum: 1 })
+                color: root.ringColor(quotaRow.fraction)
+            }
+        }
 
         Rectangle {
-            id: labelSwatch
-            anchors.verticalCenter: parent.verticalCenter
-            width: 9
-            height: width
-            color: detailLabel.swatchColor
-            opacity: detailLabel.muted ? 0.65 : 1
+            width: parent.width
+            height: quotaRow.emphasis ? 8 : 6
+            radius: height / 2
+            color: Theme.surfaceVariant
+
+            Rectangle {
+                width: parent.width * quotaRow.fraction
+                height: parent.height
+                radius: parent.radius
+                color: root.ringColor(quotaRow.fraction)
+            }
         }
 
-        DayDetailText {
+        StyledText {
+            visible: quotaRow.overPace >= 1 && quotaRow.fraction > 0
+            text: quotaRow.overPace + "% " + root.tr("over pace")
+            font.pixelSize: Theme.fontSizeSmall - 1
+            color: Theme.warning
+        }
+    }
+
+    component DetailLine: Item {
+        id: line
+        property string name: ""
+        property string value: ""
+        property color swatch: "transparent"
+        property bool showSwatch: false
+        property bool roundSwatch: false
+        property bool strong: false
+        property real indent: 0
+        height: lineName.implicitHeight
+
+        Rectangle {
+            visible: line.showSwatch
+            x: line.indent
             anchors.verticalCenter: parent.verticalCenter
-            width: Math.min(implicitWidth, Math.max(0, detailLabel.availableWidth - labelSwatch.width
-                                                    - labelTokens.implicitWidth - 2 * detailLabel.spacing))
-            text: detailLabel.name
-            color: detailLabel.muted ? Theme.surfaceVariantText : Theme.surfaceText
+            width: 8
+            height: 8
+            radius: line.roundSwatch ? 4 : 1
+            color: line.swatch
+        }
+
+        StyledText {
+            id: lineName
+            x: line.indent + (line.showSwatch ? 8 + Theme.spacingXS : 0)
+            width: Math.max(0, line.width - x - lineValue.implicitWidth - Theme.spacingS)
+            text: line.name
             elide: Text.ElideRight
+            textFormat: Text.PlainText
+            font.pixelSize: Theme.fontSizeSmall
+            font.weight: line.strong ? Font.Medium : Font.Normal
+            color: line.strong ? Theme.surfaceText : Theme.surfaceVariantText
         }
 
-        DayDetailText {
-            id: labelTokens
-            anchors.verticalCenter: parent.verticalCenter
-            text: root.formatTokens(detailLabel.tokens)
-            color: Theme.surfaceVariantText
+        StyledText {
+            id: lineValue
+            anchors.right: parent.right
+            text: line.value
+            font.pixelSize: Theme.fontSizeSmall
+            font.features: ({ tnum: 1 })
+            font.weight: line.strong ? Font.Medium : Font.Normal
+            color: line.strong ? Theme.surfaceText : Theme.surfaceVariantText
         }
     }
 
@@ -89,6 +200,30 @@ PluginComponent {
     }
 
     property var quota: null
+    property var lastGood: null
+    // Cached data survives a failure from the same proxy; a failure from another proxy, or with none, drops it.
+    function receive(result) {
+        if (result.status === "ok")
+            lastGood = result;
+        else if (result.status === "no-endpoint" || (result.source && lastGood?.source && result.source !== lastGood.source))
+            lastGood = null;
+        quota = result;
+    }
+
+    // pluginData is replaced on every settings save; only a different source counts.
+    readonly property string sourceKey: JSON.stringify(scriptEnvironment)
+    property bool sourceChanged: false
+    onSourceKeyChanged: {
+        forceFetch = quota !== null || quotaProcess.running;
+        quota = null;
+        lastGood = null;
+        if (quotaProcess.running)
+            sourceChanged = true;
+        else
+            quotaProcess.running = true;
+    }
+    readonly property var shown: quota && quota.status === "ok" ? quota
+        : lastGood && (!quota?.source || !lastGood.source || quota.source === lastGood.source) ? lastGood : null
 
     function parseList(raw) {
         var seen = {};
@@ -113,7 +248,7 @@ PluginComponent {
         pluginService?.savePluginData("cliproxyQuota", "untrackedProviders", list.join(", "));
     }
 
-    readonly property var visibleProviders: quota && quota.providers ? quota.providers : []
+    readonly property var visibleProviders: shown && shown.providers ? shown.providers : []
 
     property string focusedProvider: pluginData.focusedProvider || ""
     readonly property int focusedIndex: {
@@ -126,7 +261,17 @@ PluginComponent {
         return 0;
     }
     readonly property var pillProvider: focusedIndex >= 0 ? visibleProviders[focusedIndex] : null
-    readonly property real remaining: pillProvider && pillProvider.aggregate !== null ? pillProvider.aggregate : -1
+    readonly property real remaining: typeof pillProvider?.aggregate === "number" ? pillProvider.aggregate : -1
+    // The group that sets the taskbar number, worth marking only when there is a choice.
+    readonly property int limitingGroup: {
+        var groups = pillProvider?.aggregateGroups || [];
+        var lowest = -1;
+        groups.forEach((group, index) => {
+            if (lowest < 0 || group.remainingFraction < groups[lowest].remainingFraction)
+                lowest = index;
+        });
+        return groups.length > 1 ? lowest : -1;
+    }
     readonly property bool dataLive: quota !== null && quota.status === "ok" && quota.stale !== true
     readonly property var trackedProviders: visibleProviders.filter(p => !isUntracked(p.provider))
     readonly property bool allProblem: trackedProviders.length > 0 && trackedProviders.every(p => p.problem === true)
@@ -134,16 +279,26 @@ PluginComponent {
 
     property double nowMs: Date.now()
 
-    readonly property var activity: pillProvider ? (pillProvider.activity || []) : []
     readonly property string todayDate: Qt.formatDate(new Date(nowMs), "yyyy-MM-dd")
 
-    readonly property var accountPalette: [
-        Theme.surfaceText || "#e6e1e5",
-        "#ff6ec7",
-        "#00e5ff",
-        "#c6ff00",
-        "#ff9100"
-    ]
+    // The last seven calendar days, oldest first; a day without history is an empty slot.
+    readonly property var activity: {
+        var byDate = {};
+        (pillProvider?.activity || []).forEach(entry => byDate[entry.date] = entry);
+        var days = [];
+        for (var i = 6; i >= 0; i--) {
+            var day = new Date(nowMs);
+            day.setHours(12, 0, 0, 0);
+            day.setDate(day.getDate() - i);
+            var key = Qt.formatDate(day, "yyyy-MM-dd");
+            days.push(byDate[key] || { date: key, requests: 0, failed: 0, tokens: {}, missing: true });
+        }
+        return days;
+    }
+
+    // Fixed hues: stock themes have no tertiary, and account colours must not read as health.
+    readonly property var accountPalette: ["#4dd0e1", "#ce93d8", "#fff59d", "#9fa8da"]
+    readonly property color otherColor: Theme.outline || "#938f99"
 
     readonly property var accountColors: {
         var accounts = pillProvider?.accounts || [];
@@ -176,6 +331,7 @@ PluginComponent {
     property string selectedAccount: ""
     readonly property string focusedProviderId: pillProvider?.provider || ""
     onFocusedProviderIdChanged: selectedAccount = ""
+    onShowAccountSplitChanged: if (!showAccountSplit) selectedAccount = ""
     onPillProviderChanged: {
         if (selectedAccount && !pillProvider?.accounts?.some(account => account.authIndex === selectedAccount))
             selectedAccount = "";
@@ -185,7 +341,8 @@ PluginComponent {
         if (selectedAccount === "")
             return entry;
         var account = entry.accounts?.[selectedAccount];
-        return { date: entry.date, requests: account?.requests || 0, failed: account?.failed || 0, tokens: account?.tokens || {} };
+        return { date: entry.date, requests: account?.requests || 0, failed: account?.failed || 0, tokens: account?.tokens || {},
+                 missing: entry.missing === true || !account };
     }
 
     readonly property var viewActivity: {
@@ -207,6 +364,15 @@ PluginComponent {
             for (var m in t)
                 sums[m] = (sums[m] || 0) + t[m];
         }
+        var accountOnly = {};
+        activity.forEach(entry => Object.values(entry.accounts || {}).forEach(account => {
+            var own = account.tokens || {};
+            for (var id in own) {
+                if (!(id in sums))
+                    accountOnly[id] = (accountOnly[id] || 0) + own[id];
+            }
+        }));
+        Object.assign(sums, accountOnly);
         return Object.keys(sums).filter(m => sums[m] > 0)
             .map(m => ({ model: m, total: sums[m] }))
             .sort((a, b) => b.total - a.total);
@@ -243,14 +409,7 @@ PluginComponent {
         return { family: family, name: name };
     }
 
-    readonly property var familyPalette: [
-        Theme.primary || "#82aaff",
-        Theme.success || "#66bb6a",
-        Theme.warning || "#ffca28",
-        Theme.error || "#ef5350",
-        Theme.tertiary || "#ab47bc",
-        Theme.info || "#26a69a"
-    ]
+    readonly property var familyPalette: [1, 0.7, 0.45, 0.25].map(alpha => Theme.withAlpha(Theme.primary, alpha))
 
     // modelTotals grouped by family, biggest first, one palette colour each.
     readonly property var modelFamilies: {
@@ -294,110 +453,95 @@ PluginComponent {
         return viewActivity.reduce((sum, entry) => sum + familyTokens(entry, family), 0);
     }
 
-    function accountTokens(entry, authIndex, family) {
-        var account = entry.accounts?.[authIndex];
-        if (!account)
-            return 0;
-        return family ? familyTokens(account, family) : dayTokens(account);
-    }
-
-    function clampedBoxes(total, parts) {
-        var left = Math.max(0, total);
-        return parts.map(part => {
-            var value = Math.max(0, Math.min(left, part.value));
-            left -= value;
-            return { authIndex: part.authIndex, value: value };
-        });
-    }
-
-    function accountBoxes(total, entries, family) {
-        var parts = splitAccounts.map(account => ({
-            authIndex: account.authIndex,
-            value: entries.reduce((sum, entry) => sum + accountTokens(entry, account.authIndex, family), 0)
-        }));
-        return clampedBoxes(total, parts).filter(part => part.value > 0 && (!selectedAccount || part.authIndex === selectedAccount));
-    }
-
-    readonly property int dayPartGap: 4
-
-    function dayDetail(allEntry, rowHeight, minBarHeight) {
-        var entry = viewEntry(allEntry);
-        var total = dayTokens(entry);
-        var parts = [];
-        var detail = { date: entry.date, total: total, requests: entry.requests, failed: entry.failed, height: minBarHeight, parts: parts };
-        if (total <= 0)
-            return detail;
-
-        var accounts = showAccountSplit && hasAccountTokens(allEntry)
-            ? splitAccounts.filter(account => (!selectedAccount || account.authIndex === selectedAccount)
-                && accountTokens(allEntry, account.authIndex, null) > 0)
-            : [];
-        var families = modelFamilies.slice();
-        var knownIds = new Set();
-        families.forEach(family => family.ids.forEach(id => knownIds.add(id)));
-        accounts.forEach(account => {
-            Object.keys(allEntry.accounts[account.authIndex].tokens || {}).forEach(id => {
-                if (knownIds.has(id))
-                    return;
-                knownIds.add(id);
-                var model = parseModel(id);
-                var index = families.findIndex(family => family.family === model.family);
-                if (index < 0) {
-                    families.push({ family: model.family, ids: [id], versions: [model], color: familyPalette[families.length % familyPalette.length] });
-                } else {
-                    var family = families[index];
-                    families[index] = { family: family.family, ids: family.ids.concat(id), color: family.color,
-                        versions: family.versions.some(version => version.name === model.name) ? family.versions : family.versions.concat(model) };
-                }
-            });
-        });
-        families.reverse();
-
-        function addPart(key, name, color, dashed, tokens, countFamily) {
-            var slices = families.map(family => ({
-                name: family.versions.length === 1 ? family.versions[0].name : family.family,
-                color: family.color, tokens: countFamily(family), y: 0, h: 0
-            })).filter(slice => slice.tokens > 0);
-            parts.push({ key: key, name: name, color: color, dashed: dashed, tokens: tokens, y: 0,
-                h: Math.max(2, slices.length) * rowHeight, slices: slices });
-        }
-
-        if (accounts.length === 0) {
-            addPart("day", "", "", false, total, family => familyTokens(entry, family));
-        } else {
-            var earlier = total - accounts.reduce((sum, account) => sum + accountTokens(allEntry, account.authIndex, null), 0);
-            if (!selectedAccount && earlier > 0) {
-                addPart("earlier", tr("earlier"), Theme.surfaceVariantText, true, earlier, family =>
-                    familyTokens(entry, family) - accounts.reduce((sum, account) => sum + accountTokens(allEntry, account.authIndex, family), 0));
+    function modelRows(tokens) {
+        var byName = {};
+        var rows = [];
+        Object.keys(tokens || {}).forEach(id => {
+            if (!(tokens[id] > 0))
+                return;
+            var model = parseModel(id);
+            var row = byName[model.name];
+            if (!row) {
+                var family = modelFamilies.find(f => f.family === model.family);
+                row = byName[model.name] = { name: model.name, tokens: 0, color: family ? family.color : otherColor };
+                rows.push(row);
             }
-            accounts.slice().reverse().forEach(account => {
-                var key = account.authIndex;
-                addPart(key, account.label || account.account, accountColors[key], false, accountTokens(allEntry, key, null),
-                    family => accountTokens(allEntry, key, family));
-            });
-        }
-
-        var minHeight = parts.reduce((sum, part) => sum + part.h, (parts.length - 1) * dayPartGap);
-        detail.height = Math.max(minBarHeight, minHeight);
-        var extraHeight = detail.height - minHeight;
-        var partTokens = parts.reduce((sum, part) => sum + part.tokens, 0);
-        var top = 0;
-        parts.forEach(part => {
-            part.y = top;
-            part.h += extraHeight * part.tokens / partTokens;
-            top += part.h + dayPartGap;
-
-            var tokens = part.slices.reduce((sum, slice) => sum + slice.tokens, 0);
-            var proportionalHeight = part.slices.reduce((sum, slice) => sum + Math.max(0, part.h * slice.tokens / tokens - 2), 0);
-            var availableHeight = part.h - 2 * part.slices.length;
-            var y = 0;
-            part.slices.forEach(slice => {
-                slice.y = y;
-                slice.h = 2 + (proportionalHeight > 0 ? availableHeight * Math.max(0, part.h * slice.tokens / tokens - 2) / proportionalHeight : 0);
-                y += slice.h;
-            });
+            row.tokens += tokens[id];
         });
+        return rows.sort((a, b) => b.tokens - a.tokens);
+    }
+
+    // One day as a table: a group per account (or one unnamed group), each with its models.
+    // With all accounts shown, each model's account counts are capped at the provider count,
+    // so the groups add up to the day total and the unattributed rest is "other".
+    function dayRows(allEntry) {
+        var entry = viewEntry(allEntry);
+        var detail = { date: entry.date, total: dayTokens(entry), requests: entry.requests + entry.failed,
+                       failed: entry.failed, missing: entry.missing === true, groups: [] };
+        function add(key, name, color, tokens) {
+            var models = modelRows(tokens);
+            var total = models.reduce((sum, row) => sum + row.tokens, 0);
+            if (total > 0)
+                detail.groups.push({ key: key, name: name, color: color, tokens: total, models: models });
+        }
+        if (!showAccountSplit) {
+            add("day", "", "", entry.tokens);
+            return detail;
+        }
+        if (selectedAccount) {
+            var selected = splitAccounts.find(account => account.authIndex === selectedAccount);
+            if (selected)
+                add(selected.authIndex, selected.label || selected.account, accountColors[selected.authIndex], entry.tokens);
+            return detail;
+        }
+        var rest = Object.assign({}, allEntry.tokens || {});
+        splitAccounts.forEach(account => {
+            var own = allEntry.accounts?.[account.authIndex]?.tokens || {};
+            var capped = {};
+            Object.keys(own).forEach(id => {
+                capped[id] = Math.max(0, Math.min(own[id], rest[id] || 0));
+                rest[id] = (rest[id] || 0) - capped[id];
+            });
+            add(account.authIndex, account.label || account.account, accountColors[account.authIndex], capped);
+        });
+        add("other", tr("other"), otherColor, rest);
         return detail;
+    }
+
+    readonly property bool usageHasTokens: modelTotals.length > 0
+    function dayValue(entry) {
+        if (!usageHasTokens)
+            return entry.requests + entry.failed;
+        return Object.values(entry.accounts || {}).reduce((max, account) => Math.max(max, dayTokens(account)), dayTokens(entry));
+    }
+    readonly property real dayMax: activity.reduce((max, entry) => Math.max(max, dayValue(entry)), 0)
+    readonly property bool hasBars: dayMax > 0 && activity.some(entry => daySegments(entry).length > 0)
+
+    // Bar segments, bottom first: by account when the split exists, otherwise by model family.
+    function daySegments(entry) {
+        if (!usageHasTokens) {
+            var view = viewEntry(entry);
+            return view.requests + view.failed > 0 ? [{ value: view.requests + view.failed, color: Theme.primary }] : [];
+        }
+        if (showAccountSplit)
+            return dayRows(entry).groups.map(group => ({ value: group.tokens, color: group.color }));
+        var filtered = viewEntry(entry);
+        return modelFamilies.map(family => ({ value: familyTokens(filtered, family), color: family.color }))
+            .filter(part => part.value > 0);
+    }
+
+    // Bar heights in pixels: proportional, at least 2 px each, and with the gaps never above the plot.
+    function segmentHeights(values, max, plot, gap) {
+        if (values.length === 0 || max <= 0)
+            return [];
+        var room = Math.max(0, plot - gap * (values.length - 1));
+        var heights = values.map(value => Math.max(2, room * value / max));
+        var over = heights.reduce((sum, h) => sum + h, 0) - room;
+        var shrinkable = heights.reduce((sum, h) => sum + h - 2, 0);
+        if (over > 0 && shrinkable > 0)
+            heights = heights.map(h => h - (h - 2) * Math.min(1, over / shrinkable));
+        var total = heights.reduce((sum, h) => sum + h, 0);
+        return total > room ? heights.map(h => h * room / total) : heights;
     }
 
     function dayOverlayPosition(left, right, rowBottom, width, height, boundsWidth, boundsHeight, gap, inset) {
@@ -416,18 +560,38 @@ PluginComponent {
         expandedFamilies = next;
     }
 
+    property var expandedAccounts: ({})
+    function toggleAccount(key, expanded) {
+        var next = Object.assign({}, expandedAccounts);
+        next[key] = !expanded;
+        expandedAccounts = next;
+    }
+
+    readonly property var visibleFamilies: modelFamilies
+        .map(family => Object.assign({}, family, { viewTotal: familyViewTotal(family) }))
+        .filter(family => family.viewTotal > 0)
+        .sort((a, b) => b.viewTotal - a.viewTotal)
+
     readonly property var usageStats: {
-        var today = { label: tr("Today"), tokens: 0, requests: 0 };
-        var week = { label: tr("7 days"), tokens: 0, requests: 0 };
+        var today = { label: tr("Today"), tokens: 0, requests: 0, missing: true };
+        var week = { label: tr("7 days"), tokens: 0, requests: 0, missing: true };
+        var recorded = 0;
         for (var i = 0; i < viewActivity.length; i++) {
             var e = viewActivity[i];
+            if (e.missing === true)
+                continue;
+            recorded++;
+            week.missing = false;
             week.tokens += dayTokens(e);
-            week.requests += e.requests;
+            week.requests += e.requests + e.failed;
             if (e.date === todayDate) {
+                today.missing = false;
                 today.tokens = dayTokens(e);
-                today.requests = e.requests;
+                today.requests = e.requests + e.failed;
             }
         }
+        if (recorded > 0 && recorded < viewActivity.length)
+            week.label = tr("%1 of 7 days").replace("%1", recorded);
         return [today, week];
     }
 
@@ -439,6 +603,10 @@ PluginComponent {
         if (n >= 1e3)
             return (Math.round(n / 100) / 10) + "k";
         return String(n);
+    }
+
+    function formatCount(n) {
+        return Number(n).toLocaleString(Qt.locale(), "f", 0);
     }
 
     function focusPage(index) {
@@ -481,6 +649,11 @@ PluginComponent {
         icons["kimi"] = "chat";
         icons["xai"] = "rocket_launch";
         return icons[name] || "cloud";
+    }
+
+    function ago(iso) {
+        var age = formatAge(iso);
+        return age === "" || age === tr("just now") ? age : tr("%1 ago").replace("%1", age);
     }
 
     function formatAge(iso) {
@@ -530,15 +703,31 @@ PluginComponent {
         return Theme.error || "#f44336";
     }
 
-    function pillText() {
+    function pillText(sign) {
         if (quota === null)
             return "…";
-        if (quota.status === "ok") {
-            var pct = remaining < 0 ? "—" : Math.round(remaining * 100) + "%";
-            return dataLive ? pct : pct + "?";
-        }
-        return (quota.error || root.tr("no data")) + "?";
+        var mark = dataLive ? "" : "?";
+        return remaining < 0 ? (pillProvider ? "\u2014" : "") + mark : Math.round(remaining * 100) + sign + mark;
     }
+
+    readonly property string pillIcon: quota === null ? "hourglass_empty"
+        : pillProvider ? providerIcon(pillProvider.provider) : "cloud_off"
+
+    readonly property string statusText: {
+        if (quota === null)
+            return tr("Loading…");
+        if (forceFetch && quotaProcess.running)
+            return tr("Refreshing…");
+        var age = ago(shown ? shown.updatedAt : "");
+        if (quota.status !== "ok")
+            return (quota.error || tr("no data")) + (lastGood && age ? " · " + tr("updated") + " " + age : "");
+        if (quota.stale)
+            return tr("stale") + (age ? " · " + tr("updated") + " " + age : "");
+        return age ? tr("updated") + " " + age : "";
+    }
+    readonly property bool needsSettings: quota !== null && (quota.status === "no-key" || quota.status === "no-endpoint")
+    readonly property color statusColor: quota && quota.status !== "ok" ? Theme.error
+        : quota && quota.stale ? Theme.warning : Theme.surfaceVariantText
 
     Process {
         id: quotaProcess
@@ -549,10 +738,10 @@ PluginComponent {
         stdout: SplitParser {
             onRead: data => {
                 var line = data.trim();
-                if (line === "")
+                if (line === "" || root.sourceChanged)
                     return;
                 try {
-                    root.quota = JSON.parse(line);
+                    root.receive(JSON.parse(line));
                     root.receivedThisRun = true;
                 } catch (e) {
                 }
@@ -566,9 +755,14 @@ PluginComponent {
         }
 
         onExited: (exitCode, exitStatus) => {
-            root.forceFetch = false;
+            if (root.sourceChanged) {
+                root.sourceChanged = false;
+                Qt.callLater(() => quotaProcess.running = true);
+                return;
+            }
             if (exitCode !== 0 || !root.receivedThisRun)
                 root.quota = ({ status: "script-error", error: "fetch failed", stale: true, providers: [] });
+            root.forceFetch = root.forceFetch && root.quota.status !== "ok";
         }
     }
 
@@ -588,49 +782,22 @@ PluginComponent {
             spacing: Theme.spacingXS
             opacity: root.dataLive ? 1 : 0.6
 
-            Canvas {
+            ProviderMark {
+                anchors.verticalCenter: parent.verticalCenter
+            }
+
+            QuotaRing {
                 width: root.iconSize
                 height: root.iconSize
                 visible: root.remaining >= 0
-                anchors.verticalCenter: parent.verticalCenter
-                renderStrategy: Canvas.Cooperative
-
-                property real fraction: root.remaining
-                onFractionChanged: requestPaint()
-                onWidthChanged: requestPaint()
-
-                onPaint: {
-                    var ctx = getContext("2d");
-                    ctx.reset();
-                    var cx = width / 2, cy = height / 2, r = width * 0.375, lw = width * 0.125;
-
-                    ctx.beginPath();
-                    ctx.arc(cx, cy, r, 0, 2 * Math.PI);
-                    ctx.lineWidth = lw;
-                    ctx.strokeStyle = Theme.surfaceVariant;
-                    ctx.stroke();
-
-                    if (fraction > 0) {
-                        ctx.beginPath();
-                        ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + 2 * Math.PI * Math.min(fraction, 1));
-                        ctx.lineWidth = lw;
-                        ctx.strokeStyle = root.ringColor(fraction);
-                        ctx.lineCap = "round";
-                        ctx.stroke();
-                    }
-                }
-            }
-
-            DankIcon {
-                name: "help"
-                visible: root.remaining < 0
-                size: root.iconSize
-                color: Theme.surfaceVariantText
+                fraction: root.remaining
                 anchors.verticalCenter: parent.verticalCenter
             }
+
 
             StyledText {
-                text: root.pillText()
+                text: root.pillText("%")
+                visible: text !== ""
                 font.pixelSize: Theme.barTextSize(root.barThickness, root.barConfig?.fontScale, root.barConfig?.maximizeWidgetText)
                 color: Theme.surfaceText
                 anchors.verticalCenter: parent.verticalCenter
@@ -643,14 +810,6 @@ PluginComponent {
                 color: Theme.warning
                 anchors.verticalCenter: parent.verticalCenter
             }
-
-            DankIcon {
-                name: "upgrade"
-                visible: root.drift
-                size: root.iconSize
-                color: Theme.info
-                anchors.verticalCenter: parent.verticalCenter
-            }
         }
     }
 
@@ -659,52 +818,24 @@ PluginComponent {
             spacing: Theme.spacingXS
             opacity: root.dataLive ? 1 : 0.6
 
-            Canvas {
+            ProviderMark {
+                anchors.horizontalCenter: parent.horizontalCenter
+            }
+
+            QuotaRing {
                 width: root.iconSize
                 height: root.iconSize
                 visible: root.remaining >= 0
-                anchors.horizontalCenter: parent.horizontalCenter
-                renderStrategy: Canvas.Cooperative
-
-                property real fraction: root.remaining
-                onFractionChanged: requestPaint()
-                onWidthChanged: requestPaint()
-
-                onPaint: {
-                    var ctx = getContext("2d");
-                    ctx.reset();
-                    var cx = width / 2, cy = height / 2, r = width * 0.375, lw = width * 0.125;
-
-                    ctx.beginPath();
-                    ctx.arc(cx, cy, r, 0, 2 * Math.PI);
-                    ctx.lineWidth = lw;
-                    ctx.strokeStyle = Theme.surfaceVariant;
-                    ctx.stroke();
-
-                    if (fraction > 0) {
-                        ctx.beginPath();
-                        ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + 2 * Math.PI * Math.min(fraction, 1));
-                        ctx.lineWidth = lw;
-                        ctx.strokeStyle = root.ringColor(fraction);
-                        ctx.lineCap = "round";
-                        ctx.stroke();
-                    }
-                }
-            }
-
-            DankIcon {
-                name: "help"
-                visible: root.remaining < 0
-                size: root.iconSize
-                color: Theme.surfaceVariantText
+                fraction: root.remaining
                 anchors.horizontalCenter: parent.horizontalCenter
             }
+
 
             StyledText {
-                text: "?"
-                visible: !root.dataLive
+                text: root.pillText("")
+                visible: text !== ""
                 font.pixelSize: Theme.barTextSize(root.barThickness, root.barConfig?.fontScale, root.barConfig?.maximizeWidgetText)
-                color: Theme.surfaceVariantText
+                color: Theme.surfaceText
                 anchors.horizontalCenter: parent.horizontalCenter
             }
 
@@ -713,14 +844,6 @@ PluginComponent {
                 visible: root.allProblem
                 size: root.iconSize
                 color: Theme.warning
-                anchors.horizontalCenter: parent.horizontalCenter
-            }
-
-            DankIcon {
-                name: "upgrade"
-                visible: root.drift
-                size: root.iconSize
-                color: Theme.info
                 anchors.horizontalCenter: parent.horizontalCenter
             }
         }
@@ -739,17 +862,15 @@ PluginComponent {
 
             property var parentPopout: null
 
-            // Everything above the scrolling area.
-            readonly property real headerHeight: 40 + navTabs.height
-                + (unsupportedNote.visible ? unsupportedNote.height + Theme.spacingS : 0)
-                + 3 * Theme.spacingS
+            readonly property real headerHeight: activityScroll.y
 
             // Grow with the content, from the base height up to 1.5x, then scroll.
             Binding {
                 target: root
                 property: "popoutHeight"
                 value: Math.round(Math.min(root.basePopoutHeight * 1.5,
-                                           Math.max(root.basePopoutHeight, popoutRoot.headerHeight + accountsColumn.height)))
+                                           Math.max(root.focusedIndex >= 0 ? root.basePopoutHeight : 0,
+                                                    popoutRoot.headerHeight + accountsColumn.height + Theme.spacingL)))
             }
             Connections {
                 target: popoutRoot.parentPopout
@@ -785,44 +906,41 @@ PluginComponent {
 
                 Item {
                     width: parent.width
-                    height: 40
+                    height: Math.max(40, statusLine.implicitHeight + Theme.spacingS)
 
-                    Row {
+                    StyledText {
+                        id: statusLine
                         anchors.left: parent.left
                         anchors.leftMargin: Theme.spacingM
+                        anchors.right: headerActions.left
+                        anchors.rightMargin: Theme.spacingS
                         anchors.verticalCenter: parent.verticalCenter
-                        spacing: Theme.spacingS
-
-                        DankIcon {
-                            name: "data_usage"
-                            size: 20
-                            color: Theme.primary
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
-
-                        StyledText {
-                            text: root.tr("Quota")
-                            font.pixelSize: Theme.fontSizeLarge
-                            font.weight: Font.Medium
-                            color: Theme.surfaceText
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
+                        visible: root.focusedIndex >= 0
+                        text: root.statusText
+                        wrapMode: Text.WordWrap
+                        maximumLineCount: 2
+                        elide: Text.ElideRight
+                        font.pixelSize: Theme.fontSizeSmall
+                        color: root.statusColor
                     }
 
                     Row {
+                        id: headerActions
                         anchors.right: parent.right
                         anchors.rightMargin: Theme.spacingM
                         anchors.verticalCenter: parent.verticalCenter
-                        spacing: Theme.spacingS
+                        spacing: Theme.spacingXS
 
-                        StyledText {
-                            text: {
-                                var age = root.formatAge(root.quota ? root.quota.updatedAt : "");
-                                return age === "" ? "" : root.tr("updated") + " " + age;
-                            }
-                            font.pixelSize: Theme.fontSizeSmall
-                            color: Theme.surfaceVariantText
+                        DankActionButton {
+                            readonly property bool untracked: root.pillProvider !== null && root.isUntracked(root.pillProvider.provider)
+                            visible: root.pillProvider !== null
+                            buttonSize: 32
+                            iconName: untracked ? "notifications_off" : "notifications"
+                            iconColor: untracked ? Theme.surfaceVariantText : Theme.surfaceText
+                            tooltipText: root.pillProvider ? root.tr("Taskbar warnings") + " \u00b7 " + root.pillProvider.provider
+                                                             + ": " + (untracked ? root.tr("off") : root.tr("on")) : ""
                             anchors.verticalCenter: parent.verticalCenter
+                            onClicked: if (root.pillProvider) root.toggleTracking(root.pillProvider.provider)
                         }
 
                         DankActionButton {
@@ -889,6 +1007,8 @@ PluginComponent {
                                 required property var modelData
                                 required property int index
                                 readonly property bool focused: index === root.focusedIndex
+                                readonly property string iconSource: root.providerIconSource(modelData.provider)
+                                readonly property bool genericIcon: iconSource === "" && root.providerIcon(modelData.provider) === "cloud"
 
                                 height: 36
                                 width: tabContent.width + 2 * Theme.spacingM
@@ -896,13 +1016,6 @@ PluginComponent {
                                 color: focused ? Theme.withAlpha(Theme.primary, 0.16) : Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
                                 border.width: 1
                                 border.color: focused ? Theme.withAlpha(Theme.primary, 0.45) : Theme.outlineLight
-
-                                Behavior on width {
-                                    NumberAnimation {
-                                        duration: Theme.shortDuration
-                                        easing.type: Easing.OutCubic
-                                    }
-                                }
 
                                 Row {
                                     id: tabContent
@@ -913,12 +1026,12 @@ PluginComponent {
                                         width: 20
                                         height: 20
                                         anchors.verticalCenter: parent.verticalCenter
-                                        opacity: providerTab.focused ? 1 : 0.55
+                                        opacity: providerTab.focused ? 1 : 0.7
 
                                         Image {
                                             anchors.fill: parent
-                                            visible: root.providerIconSource(providerTab.modelData.provider) !== ""
-                                            source: root.providerIconSource(providerTab.modelData.provider)
+                                            visible: providerTab.iconSource !== ""
+                                            source: providerTab.iconSource
                                             sourceSize.width: 40
                                             sourceSize.height: 40
                                             fillMode: Image.PreserveAspectFit
@@ -927,7 +1040,7 @@ PluginComponent {
 
                                         DankIcon {
                                             anchors.centerIn: parent
-                                            visible: root.providerIconSource(providerTab.modelData.provider) === ""
+                                            visible: providerTab.iconSource === ""
                                             name: root.providerIcon(providerTab.modelData.provider)
                                             size: 18
                                             color: providerTab.focused ? Theme.primary : Theme.surfaceVariantText
@@ -935,21 +1048,21 @@ PluginComponent {
                                     }
 
                                     StyledText {
-                                        visible: providerTab.focused
+                                        visible: providerTab.focused || providerTab.genericIcon
                                         text: providerTab.modelData.provider
                                         font.pixelSize: Theme.fontSizeMedium
                                         font.weight: Font.Medium
-                                        color: Theme.surfaceText
+                                        color: providerTab.focused ? Theme.surfaceText : Theme.surfaceVariantText
                                         anchors.verticalCenter: parent.verticalCenter
                                     }
 
                                     StyledText {
-                                        visible: providerTab.focused
-                                        text: (providerTab.modelData.aggregate !== null ? Math.round(providerTab.modelData.aggregate * 100) + "%" : "\u2014")
-                                              + (root.dataLive ? "" : "?")
+                                        readonly property bool known: typeof providerTab.modelData.aggregate === "number"
+                                        text: known ? Math.round(providerTab.modelData.aggregate * 100) + "%" : "\u2014"
                                         font.pixelSize: Theme.fontSizeMedium
                                         font.weight: Font.Medium
-                                        color: root.dataLive && providerTab.modelData.aggregate !== null ? root.ringColor(providerTab.modelData.aggregate) : Theme.surfaceVariantText
+                                        font.features: ({ tnum: 1 })
+                                        color: root.dataLive && known ? root.ringColor(providerTab.modelData.aggregate) : Theme.surfaceVariantText
                                         anchors.verticalCenter: parent.verticalCenter
                                     }
                                 }
@@ -965,7 +1078,7 @@ PluginComponent {
                                     width: 9
                                     height: 9
                                     radius: 4.5
-                                    color: Theme.warning
+                                    color: Theme.error
                                     border.width: 1
                                     border.color: Theme.surfaceContainerHigh
                                     anchors.top: parent.top
@@ -982,33 +1095,30 @@ PluginComponent {
                 StyledText {
                     anchors.horizontalCenter: parent.horizontalCenter
                     width: parent.width - 2 * Theme.spacingM
-                    visible: root.focusedIndex < 0
-                    text: root.quota && root.quota.error ? root.quota.error : root.tr("no data")
-                    horizontalAlignment: Text.AlignHCenter
+                    visible: root.focusedIndex >= 0 && root.needsSettings
+                    text: root.tr("Check the plugin settings or unlock your vault.")
                     wrapMode: Text.WordWrap
-                    font.pixelSize: Theme.fontSizeMedium
+                    font.pixelSize: Theme.fontSizeSmall
                     color: Theme.surfaceVariantText
                 }
 
                 StyledText {
-                    id: unsupportedNote
                     anchors.horizontalCenter: parent.horizontalCenter
                     width: parent.width - 2 * Theme.spacingM
-                    visible: root.quota && root.quota.unsupportedProviders && root.quota.unsupportedProviders.length > 0
-                    text: visible ? root.tr("unsupported") + ": " + root.quota.unsupportedProviders.join(", ") : ""
-                    horizontalAlignment: Text.AlignHCenter
+                    visible: root.drift
+                    text: root.tr("The server sends a newer data format. Update this widget.")
+                    wrapMode: Text.WordWrap
                     font.pixelSize: Theme.fontSizeSmall
-                    font.italic: true
-                    color: Theme.surfaceVariantText
+                    color: Theme.info
                 }
 
                 DankFlickable {
                     id: activityScroll
                     width: parent.width
-                    height: Math.max(140, root.popoutHeight - popoutRoot.headerHeight)
+                    height: Math.max(0, root.popoutHeight - popoutRoot.headerHeight)
                     contentHeight: accountsColumn.height
                     clip: true
-                    opacity: root.dataLive ? 1 : 0.6
+                    opacity: root.dataLive || root.focusedIndex < 0 ? 1 : 0.6
 
                     Column {
                         id: accountsColumn
@@ -1016,131 +1126,311 @@ PluginComponent {
                         spacing: Theme.spacingS
 
                         Column {
-                            id: aggregateBars
+                            visible: root.focusedIndex < 0
+                            width: parent.width - 2 * Theme.spacingM
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            topPadding: Theme.spacingL
+                            spacing: Theme.spacingS
+
+                            StyledText {
+                                width: parent.width
+                                text: root.quota === null ? root.tr("Loading…") : root.quota.error || root.tr("no data")
+                                horizontalAlignment: Text.AlignHCenter
+                                wrapMode: Text.WordWrap
+                                font.pixelSize: Theme.fontSizeMedium
+                                color: root.quota && root.quota.status !== "ok" ? Theme.error : Theme.surfaceVariantText
+                            }
+
+                            StyledText {
+                                width: parent.width
+                                visible: root.needsSettings
+                                text: root.tr("Check the plugin settings or unlock your vault.")
+                                horizontalAlignment: Text.AlignHCenter
+                                wrapMode: Text.WordWrap
+                                font.pixelSize: Theme.fontSizeSmall
+                                color: Theme.surfaceVariantText
+                            }
+                        }
+
+                        StyledRect {
+                            id: quotaCard
+                            visible: root.pillProvider !== null
                             width: accountsColumn.width - 2 * Theme.spacingM
                             anchors.horizontalCenter: parent.horizontalCenter
-                            spacing: Theme.spacingS
-                            visible: root.focusedIndex >= 0
+                            height: quotaContent.height + 2 * Theme.spacingM
+                            radius: Theme.cornerRadius
+                            color: Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
 
-                            Repeater {
-                                model: root.pillProvider ? (root.pillProvider.aggregateGroups || []) : []
+                            Column {
+                                id: quotaContent
+                                anchors.centerIn: parent
+                                width: parent.width - 2 * Theme.spacingM
+                                spacing: Theme.spacingM
 
-                                delegate: StyledRect {
-                                    id: aggGroupCard
-                                    required property var modelData
-                                    required property int index
-                                    readonly property bool lead: index === 0
-                                    readonly property real fraction: Math.max(0, Math.min(1, modelData.remainingFraction))
-                                    readonly property real paceDelta: {
-                                        var ws = modelData.windowSeconds;
-                                        var rt = modelData.resetTime;
-                                        if (!ws || !rt)
-                                            return NaN;
-                                        var remainMs = new Date(rt).getTime() - root.nowMs;
-                                        if (isNaN(remainMs) || remainMs < 0)
-                                            return NaN;
-                                        var elapsed = 1 - remainMs / (ws * 1000);
-                                        elapsed = Math.max(0, Math.min(1, elapsed));
-                                        return (1 - fraction) - elapsed;
+                                StyledText {
+                                    text: root.tr("Quota remaining")
+                                    font.pixelSize: Theme.fontSizeMedium
+                                    font.weight: Font.Medium
+                                    color: Theme.surfaceText
+                                }
+
+                                StyledText {
+                                    visible: root.pillProvider !== null && (root.pillProvider.aggregateGroups || []).length === 0
+                                    text: root.pillProvider && root.pillProvider.problem === true
+                                          ? root.tr("no account is serving") : root.tr("no quota reported")
+                                    font.pixelSize: Theme.fontSizeSmall
+                                    color: Theme.surfaceVariantText
+                                }
+
+                                Repeater {
+                                    model: root.pillProvider ? (root.pillProvider.aggregateGroups || []) : []
+
+                                    delegate: QuotaRow {
+                                        required property var modelData
+                                        required property int index
+                                        width: quotaContent.width
+                                        group: modelData
+                                        emphasis: index === root.limitingGroup
+                                    }
+                                }
+                            }
+                        }
+
+                        StyledText {
+                            visible: root.pillProvider !== null && root.pillProvider.accounts.length > 0
+                            x: Theme.spacingM
+                            topPadding: Theme.spacingS
+                            text: root.tr("Accounts")
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.weight: Font.Medium
+                            color: Theme.surfaceVariantText
+                        }
+
+                        Repeater {
+                            model: root.pillProvider ? root.pillProvider.accounts : []
+
+                            delegate: StyledRect {
+                                id: accountCard
+                                required property var modelData
+
+                                readonly property bool healthy: !modelData.disabled && !modelData.unavailable
+                                                                && (modelData.status === "active" || modelData.supported === false)
+                                readonly property var accountColor: root.cardAccountColor(modelData.authIndex)
+                                readonly property string expandKey: modelData.authIndex || modelData.account
+                                readonly property bool expanded: root.expandedAccounts[expandKey] ?? !!modelData.error
+                                readonly property real worst: modelData.groups.reduce((min, group) => Math.min(min, group.remainingFraction), 2)
+
+                                width: accountsColumn.width - 2 * Theme.spacingM
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                height: accountHeader.height + (expanded ? accountBody.height + Theme.spacingS : 0)
+                                radius: Theme.cornerRadius
+                                color: Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
+                                border.width: healthy ? 0 : 1
+                                border.color: Theme.withAlpha(Theme.error, 0.5)
+                                clip: true
+
+                                Behavior on height {
+                                    NumberAnimation {
+                                        duration: Theme.shortDuration
+                                        easing.type: Easing.OutCubic
+                                    }
+                                }
+
+                                Item {
+                                    id: accountHeader
+                                    width: parent.width
+                                    height: 44
+                                    activeFocusOnTab: true
+                                    Accessible.role: Accessible.Button
+                                    Accessible.name: accountCard.modelData.label || accountCard.modelData.account
+                                    Accessible.onPressAction: root.toggleAccount(accountCard.expandKey, accountCard.expanded)
+                                    Keys.onSpacePressed: root.toggleAccount(accountCard.expandKey, accountCard.expanded)
+                                    Keys.onReturnPressed: root.toggleAccount(accountCard.expandKey, accountCard.expanded)
+                                    Keys.onEnterPressed: root.toggleAccount(accountCard.expandKey, accountCard.expanded)
+                                    onActiveFocusChanged: {
+                                        if (activeFocus)
+                                            activityScroll.contentY = Math.max(accountCard.y + height - activityScroll.height,
+                                                                               Math.min(accountCard.y, activityScroll.contentY));
                                     }
 
-                                    width: aggregateBars.width
-                                    height: lead ? 124 : 88
-                                    radius: Theme.cornerRadius
-                                    color: Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
+                                    Rectangle {
+                                        anchors.fill: parent
+                                        anchors.margins: 2
+                                        radius: Theme.cornerRadius
+                                        visible: accountHeader.activeFocus
+                                        color: "transparent"
+                                        border.width: 2
+                                        border.color: Theme.primary
+                                    }
 
-                                    Row {
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: root.toggleAccount(accountCard.expandKey, accountCard.expanded)
+                                    }
+
+                                    Rectangle {
+                                        visible: accountCard.accountColor !== ""
+                                        x: 5
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: 4
+                                        height: 22
+                                        radius: 2
+                                        color: accountCard.accountColor || "transparent"
+                                    }
+
+                                    Rectangle {
+                                        id: healthDot
                                         anchors.left: parent.left
                                         anchors.leftMargin: Theme.spacingM
                                         anchors.verticalCenter: parent.verticalCenter
-                                        spacing: Theme.spacingL
+                                        width: 8
+                                        height: 8
+                                        radius: 4
+                                        color: accountCard.modelData.disabled || accountCard.modelData.unavailable
+                                               || accountCard.modelData.supported === false
+                                               ? Theme.surfaceVariantText
+                                               : accountCard.modelData.status !== "active" ? Theme.error : Theme.success
+                                    }
 
-                                        Item {
-                                            width: aggGroupCard.lead ? 96 : 64
-                                            height: width
-                                            anchors.verticalCenter: parent.verticalCenter
+                                    StyledText {
+                                        anchors.left: healthDot.right
+                                        anchors.leftMargin: Theme.spacingS
+                                        anchors.right: accountTags.left
+                                        anchors.rightMargin: Theme.spacingS
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: accountCard.modelData.label || accountCard.modelData.account
+                                        elide: Text.ElideRight
+                                        font.pixelSize: Theme.fontSizeMedium
+                                        color: Theme.surfaceText
+                                    }
 
-                                            Canvas {
-                                                anchors.fill: parent
-                                                renderStrategy: Canvas.Cooperative
+                                    Row {
+                                        id: accountTags
+                                        anchors.right: accountWorst.left
+                                        anchors.rightMargin: Theme.spacingS
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        spacing: Theme.spacingS
 
-                                                property real fraction: aggGroupCard.fraction
-                                                onFractionChanged: requestPaint()
-                                                onWidthChanged: requestPaint()
-
-                                                onPaint: {
-                                                    var ctx = getContext("2d");
-                                                    ctx.reset();
-                                                    var cx = width / 2, cy = height / 2, r = width * 0.42, lw = width * 0.09;
-
-                                                    ctx.beginPath();
-                                                    ctx.arc(cx, cy, r, 0, 2 * Math.PI);
-                                                    ctx.lineWidth = lw;
-                                                    ctx.strokeStyle = Theme.surfaceVariant;
-                                                    ctx.stroke();
-
-                                                    if (fraction > 0) {
-                                                        ctx.beginPath();
-                                                        ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + 2 * Math.PI * fraction);
-                                                        ctx.lineWidth = lw;
-                                                        ctx.strokeStyle = root.ringColor(fraction);
-                                                        ctx.lineCap = "round";
-                                                        ctx.stroke();
-                                                    }
-                                                }
-                                            }
-
-                                            StyledText {
-                                                anchors.centerIn: parent
-                                                text: Math.round(aggGroupCard.fraction * 100) + "%"
-                                                font.pixelSize: aggGroupCard.lead ? Theme.fontSizeXLarge : Theme.fontSizeMedium
-                                                font.weight: Font.DemiBold
-                                                color: Theme.surfaceText
-                                            }
+                                        StyledText {
+                                            visible: accountCard.modelData.headline && root.pillProvider.accounts.length > 1
+                                            text: root.tr("shown above")
+                                            font.pixelSize: Theme.fontSizeSmall
+                                            color: Theme.primary
                                         }
 
-                                        Column {
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            spacing: aggGroupCard.lead ? 4 : 2
+                                        StyledText {
+                                            visible: accountCard.modelData.supported !== false && accountCard.modelData.status !== "active"
+                                                     && !accountCard.modelData.disabled && !accountCard.modelData.unavailable
+                                            text: root.tr(accountCard.modelData.status)
+                                            font.pixelSize: Theme.fontSizeSmall
+                                            color: Theme.error
+                                        }
 
-                                            StyledText {
-                                                text: aggGroupCard.modelData.label || aggGroupCard.modelData.id
-                                                font.pixelSize: aggGroupCard.lead ? Theme.fontSizeLarge : Theme.fontSizeMedium
-                                                font.weight: Font.Medium
-                                                color: Theme.surfaceText
-                                            }
+                                        StyledText {
+                                            visible: accountCard.modelData.disabled
+                                            text: root.tr("disabled")
+                                            font.pixelSize: Theme.fontSizeSmall
+                                            color: Theme.error
+                                        }
 
-                                            StyledText {
-                                                text: Math.round(aggGroupCard.fraction * 100) + "% " + root.tr("remaining")
-                                                font.pixelSize: Theme.fontSizeSmall
-                                                color: root.ringColor(aggGroupCard.fraction)
-                                            }
+                                        StyledText {
+                                            visible: accountCard.modelData.unavailable
+                                            text: root.tr("unavailable")
+                                            font.pixelSize: Theme.fontSizeSmall
+                                            color: Theme.warning
+                                        }
 
-                                            StyledText {
-                                                visible: text !== ""
-                                                text: root.formatCountdown(aggGroupCard.modelData.resetTime)
-                                                font.pixelSize: Theme.fontSizeSmall
-                                                color: Theme.surfaceVariantText
-                                            }
+                                        StyledText {
+                                            visible: accountCard.modelData.supported === false
+                                            text: root.tr("unsupported")
+                                            font.pixelSize: Theme.fontSizeSmall
+                                            color: Theme.surfaceVariantText
+                                        }
+                                    }
 
-                                            StyledText {
-                                                visible: !isNaN(aggGroupCard.paceDelta)
-                                                text: {
-                                                    var pct = Math.round(Math.abs(aggGroupCard.paceDelta) * 100);
-                                                    if (pct < 1)
-                                                        return root.tr("on pace");
-                                                    return pct + "% " + (aggGroupCard.paceDelta > 0 ? root.tr("over pace") : root.tr("under pace"));
-                                                }
-                                                font.pixelSize: Theme.fontSizeSmall
-                                                color: isNaN(aggGroupCard.paceDelta) || Math.round(Math.abs(aggGroupCard.paceDelta) * 100) < 1
-                                                       ? Theme.surfaceVariantText
-                                                       : aggGroupCard.paceDelta > 0 ? Theme.warning : Theme.success
-                                            }
+                                    StyledText {
+                                        id: accountWorst
+                                        anchors.right: accountChevron.left
+                                        anchors.rightMargin: Theme.spacingXS
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: accountCard.worst <= 1 ? Math.round(Math.max(0, accountCard.worst) * 100) + "%" : ""
+                                        font.pixelSize: Theme.fontSizeSmall
+                                        font.weight: Font.Medium
+                                        font.features: ({ tnum: 1 })
+                                        color: root.ringColor(accountCard.worst)
+                                    }
+
+                                    DankIcon {
+                                        id: accountChevron
+                                        anchors.right: parent.right
+                                        anchors.rightMargin: Theme.spacingM
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        name: accountCard.expanded ? "expand_less" : "expand_more"
+                                        size: 18
+                                        color: Theme.surfaceVariantText
+                                    }
+                                }
+
+                                Column {
+                                    id: accountBody
+                                    anchors.top: accountHeader.bottom
+                                    width: parent.width - 2 * Theme.spacingM
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    spacing: Theme.spacingS
+                                    visible: accountCard.expanded
+
+                                    StyledText {
+                                        width: parent.width
+                                        wrapMode: Text.WordWrap
+                                        text: [
+                                            accountCard.modelData.status !== "active" && (accountCard.modelData.disabled || accountCard.modelData.unavailable
+                                                || accountCard.modelData.supported === false) ? root.tr(accountCard.modelData.status) : "",
+                                            accountCard.modelData.lastRequestAt ? root.tr("last request") + " " + root.ago(accountCard.modelData.lastRequestAt) : "",
+                                            root.formatCount(accountCard.modelData.success || 0) + " " + root.tr("ok"),
+                                            root.formatCount(accountCard.modelData.failed || 0) + " " + root.tr("failed")
+                                        ].filter(part => part !== "").join(" \u00b7 ")
+                                        font.pixelSize: Theme.fontSizeSmall
+                                        color: Theme.surfaceVariantText
+                                    }
+
+                                    StyledText {
+                                        visible: accountCard.modelData.error !== ""
+                                        width: parent.width
+                                        text: accountCard.modelData.error
+                                        font.pixelSize: Theme.fontSizeSmall
+                                        color: accountCard.healthy ? Theme.surfaceVariantText : Theme.error
+                                        wrapMode: Text.WordWrap
+                                    }
+
+                                    StyledText {
+                                        visible: accountCard.modelData.noQuota
+                                        text: root.tr("no quota reported")
+                                        font.pixelSize: Theme.fontSizeSmall
+                                        color: Theme.surfaceVariantText
+                                    }
+
+                                    Repeater {
+                                        model: accountCard.modelData.headline ? [] : accountCard.modelData.groups
+
+                                        delegate: QuotaRow {
+                                            required property var modelData
+                                            width: accountBody.width
+                                            group: modelData
                                         }
                                     }
                                 }
                             }
+                        }
 
+                        StyledText {
+                            visible: activityCard.visible
+                            x: Theme.spacingM
+                            topPadding: Theme.spacingS
+                            text: root.tr("Usage")
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.weight: Font.Medium
+                            color: Theme.surfaceVariantText
                         }
 
                         Flickable {
@@ -1160,7 +1450,7 @@ PluginComponent {
                                 spacing: Theme.spacingS
 
                                 Repeater {
-                                    model: root.showAccountSplit ? [{ authIndex: "", label: root.tr("All") }].concat(root.splitAccounts) : []
+                                    model: root.showAccountSplit ? [{ authIndex: "", label: root.tr("All accounts") }].concat(root.splitAccounts) : []
 
                                     delegate: StyledRect {
                                         id: accountChip
@@ -1204,7 +1494,7 @@ PluginComponent {
                                             StyledText {
                                                 text: accountChip.chipLabel
                                                 elide: Text.ElideRight
-                                                width: Math.min(implicitWidth, Math.max(0, accountScroll.width - 2 * Theme.spacingS - 8 - Theme.spacingXS))
+                                                width: Math.min(implicitWidth, 160)
                                                 font.pixelSize: Theme.fontSizeSmall
                                                 color: Theme.surfaceText
                                                 anchors.verticalCenter: parent.verticalCenter
@@ -1222,94 +1512,13 @@ PluginComponent {
                         }
 
                         StyledRect {
-                            id: tokensCard
-                            visible: root.modelTotals.length > 0
-                            width: accountsColumn.width - 2 * Theme.spacingM
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            height: tokensContent.height + 2 * Theme.spacingM
-                            radius: Theme.cornerRadius
-                            color: Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
-
-                            Column {
-                                id: tokensContent
-                                anchors.centerIn: parent
-                                width: parent.width - 2 * Theme.spacingM
-                                spacing: Theme.spacingS
-
-                                StyledText {
-                                    text: root.tr("Token Consumption")
-                                    font.pixelSize: Theme.fontSizeMedium
-                                    font.weight: Font.Medium
-                                    color: Theme.surfaceText
-                                }
-
-                                Row {
-                                    width: parent.width
-
-                                    Repeater {
-                                        model: root.usageStats
-
-                                        delegate: Column {
-                                            id: statColumn
-                                            required property var modelData
-                                            width: tokensContent.width / root.usageStats.length
-                                            spacing: 2
-
-                                            StyledText {
-                                                anchors.horizontalCenter: parent.horizontalCenter
-                                                text: statColumn.modelData.label
-                                                font.pixelSize: Theme.fontSizeSmall
-                                                color: Theme.surfaceVariantText
-                                            }
-
-                                            StyledText {
-                                                anchors.horizontalCenter: parent.horizontalCenter
-                                                text: root.formatTokens(statColumn.modelData.tokens)
-                                                font.pixelSize: Theme.fontSizeXLarge
-                                                color: Theme.primary
-                                            }
-
-                                            StyledText {
-                                                anchors.horizontalCenter: parent.horizontalCenter
-                                                text: statColumn.modelData.requests + " " + root.tr("requests")
-                                                font.pixelSize: Theme.fontSizeSmall
-                                                color: Theme.surfaceVariantText
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        StyledRect {
                             id: activityCard
-                            readonly property bool hasTokens: root.modelTotals.length > 0
-                            readonly property real maxValue: {
-                                var m = 0;
-                                for (var i = 0; i < root.activity.length; i++)
-                                    m = Math.max(m, value(root.activity[i]));
-                                return m;
-                            }
-
-                            visible: root.activity.length > 0
+                            visible: root.pillProvider !== null
                             width: accountsColumn.width - 2 * Theme.spacingM
                             anchors.horizontalCenter: parent.horizontalCenter
                             height: activityContent.height + 2 * Theme.spacingM
                             radius: Theme.cornerRadius
                             color: Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
-
-                            DankTooltipV2 {
-                                id: dayTip
-                            }
-
-                            function value(entry) {
-                                return hasTokens ? root.dayTokens(entry) : entry.requests;
-                            }
-
-                            function dayTooltip(entry) {
-                                var requests = entry.requests + " " + root.tr("requests");
-                                return requests + (entry.failed > 0 ? " \u00b7 " + entry.failed + " " + root.tr("failed") : "");
-                            }
 
                             Column {
                                 id: activityContent
@@ -1318,15 +1527,30 @@ PluginComponent {
                                 spacing: Theme.spacingS
 
                                 StyledText {
-                                    text: root.tr("Daily Activity")
+                                    text: root.usageHasTokens ? root.tr("Tokens per day") : root.tr("Requests per day")
                                     font.pixelSize: Theme.fontSizeMedium
                                     font.weight: Font.Medium
                                     color: Theme.surfaceText
                                 }
 
+                                Repeater {
+                                    model: root.usageStats
+
+                                    delegate: DetailLine {
+                                        required property var modelData
+                                        width: activityContent.width
+                                        name: modelData.label
+                                        value: modelData.missing ? root.tr("no data")
+                                               : (root.usageHasTokens ? root.formatTokens(modelData.tokens) + " " + root.tr("tokens") + " \u00b7 " : "")
+                                                 + root.formatCount(modelData.requests) + " " + root.tr("requests")
+                                    }
+                                }
+
                                 Row {
                                     id: barsRow
+                                    visible: root.hasBars
                                     width: parent.width
+                                    topPadding: Theme.spacingXS
 
                                     Repeater {
                                         model: root.activity
@@ -1334,96 +1558,67 @@ PluginComponent {
                                         delegate: Column {
                                             id: dayColumn
                                             required property var modelData
-                                            readonly property var entry: root.viewEntry(modelData)
-                                            readonly property real value: activityCard.value(entry)
+                                            readonly property var segments: root.daySegments(modelData)
+                                            readonly property var bars: {
+                                                var heights = root.segmentHeights(segments.map(part => part.value), root.dayMax, 80, 1);
+                                                return segments.map((part, i) => ({ color: part.color, h: heights[i] })).reverse();
+                                            }
                                             readonly property bool isToday: modelData.date === root.todayDate
+                                            readonly property bool missing: root.viewEntry(modelData).missing === true
+                                            readonly property real barWidth: Math.min(28, width - Theme.spacingS)
                                             width: barsRow.width / root.activity.length
                                             spacing: 4
 
-                                            StyledText {
-                                                anchors.horizontalCenter: parent.horizontalCenter
-                                                text: activityCard.hasTokens ? root.formatTokens(dayColumn.value) : dayColumn.value
-                                                font.pixelSize: Theme.fontSizeSmall - 2
-                                                color: Theme.surfaceVariantText
-                                            }
-
                                             Item {
                                                 width: parent.width
-                                                height: 64
-                                                clip: true
+                                                height: 80
 
-                                                Column {
-                                                    visible: activityCard.hasTokens
-                                                    anchors.bottom: parent.bottom
-                                                    anchors.horizontalCenter: parent.horizontalCenter
-
-                                                    Repeater {
-                                                        model: activityCard.hasTokens ? root.modelFamilies.slice().reverse() : []
-
-                                                        delegate: Rectangle {
-                                                            required property var modelData
-                                                            readonly property real value: root.familyTokens(dayColumn.entry, modelData)
-                                                            width: Math.min(36, dayColumn.width - Theme.spacingS)
-                                                            height: value > 0 && activityCard.maxValue > 0 ? Math.max(1, 64 * value / activityCard.maxValue) : 0
-                                                            color: modelData.color
-                                                        }
-                                                    }
+                                                Rectangle {
+                                                    anchors.fill: parent
+                                                    radius: 4
+                                                    visible: dayOverlay.day === dayColumn
+                                                    color: Theme.withAlpha(Theme.surfaceText, 0.08)
                                                 }
 
                                                 Rectangle {
-                                                    visible: (!activityCard.hasTokens || dayColumn.value <= 0) && !root.selectedAccount
+                                                    visible: dayColumn.segments.length === 0 && !dayColumn.missing
                                                     anchors.bottom: parent.bottom
                                                     anchors.horizontalCenter: parent.horizontalCenter
-                                                    width: Math.min(36, parent.width - Theme.spacingS)
-                                                    radius: 4
-                                                    height: activityCard.maxValue > 0 ? Math.max(3, 64 * dayColumn.value / activityCard.maxValue) : 3
-                                                    color: dayColumn.value <= 0 ? Theme.surfaceVariant
-                                                         : dayColumn.isToday ? Theme.primary
-                                                         : Theme.withAlpha(Theme.primary, 0.35)
+                                                    width: dayColumn.barWidth
+                                                    height: 2
+                                                    color: Theme.surfaceVariant
                                                 }
 
-                                                Column {
-                                                    anchors.bottom: parent.bottom
-                                                    anchors.horizontalCenter: parent.horizontalCenter
+                                                Item {
+                                                    anchors.fill: parent
+                                                    clip: true
 
-                                                    Repeater {
-                                                        model: root.showAccountSplit && activityCard.maxValue > 0
-                                                               ? root.accountBoxes(root.dayTokens(dayColumn.modelData), [dayColumn.modelData], null).reverse() : []
+                                                    Column {
+                                                        anchors.bottom: parent.bottom
+                                                        anchors.horizontalCenter: parent.horizontalCenter
+                                                        spacing: 1
 
-                                                        delegate: AccountOutline {
-                                                            required property var modelData
-                                                            width: Math.min(36, dayColumn.width - Theme.spacingS)
-                                                            height: Math.max(3, 64 * modelData.value / activityCard.maxValue)
-                                                            accountColor: root.accountColors[modelData.authIndex]
+                                                        Repeater {
+                                                            model: dayColumn.bars
+
+                                                            delegate: Rectangle {
+                                                                required property var modelData
+                                                                width: dayColumn.barWidth
+                                                                height: modelData.h
+                                                                color: modelData.color
+                                                            }
                                                         }
                                                     }
-                                                }
-
-                                                Rectangle {
-                                                    visible: dayOverlay.visible && dayOverlay.day === dayColumn
-                                                    anchors.horizontalCenter: parent.horizontalCenter
-                                                    width: Math.min(36, parent.width - Theme.spacingS) + 4
-                                                    height: parent.height
-                                                    radius: 4
-                                                    color: "transparent"
-                                                    border.width: 1
-                                                    border.color: Theme.surfaceText
                                                 }
 
                                                 MouseArea {
                                                     anchors.fill: parent
                                                     hoverEnabled: true
                                                     acceptedButtons: Qt.NoButton
-                                                    onEntered: {
-                                                        if (activityCard.hasTokens)
-                                                            dayOverlay.day = dayColumn;
-                                                        else
-                                                            dayTip.show(activityCard.dayTooltip(dayColumn.entry), parent, 0, 0, "top");
-                                                    }
+                                                    onEntered: dayOverlay.day = dayColumn
                                                     onExited: {
                                                         if (dayOverlay.day === dayColumn)
                                                             dayOverlay.day = null;
-                                                        dayTip.hide();
                                                     }
                                                 }
                                             }
@@ -1434,7 +1629,7 @@ PluginComponent {
                                                     var d = new Date(dayColumn.modelData.date + "T00:00:00");
                                                     return isNaN(d.getTime()) ? "" : d.toLocaleDateString(Qt.locale(), "ddd");
                                                 }
-                                                font.pixelSize: Theme.fontSizeSmall - 2
+                                                font.pixelSize: Theme.fontSizeSmall - 1
                                                 font.weight: dayColumn.isToday ? Font.Bold : Font.Normal
                                                 color: dayColumn.isToday ? Theme.surfaceText : Theme.surfaceVariantText
                                             }
@@ -1446,7 +1641,7 @@ PluginComponent {
 
                         StyledRect {
                             id: modelsCard
-                            visible: root.modelTotals.length > 0
+                            visible: root.visibleFamilies.length > 0
                             width: accountsColumn.width - 2 * Theme.spacingM
                             anchors.horizontalCenter: parent.horizontalCenter
                             height: modelsContent.height + 2 * Theme.spacingM
@@ -1460,19 +1655,18 @@ PluginComponent {
                                 spacing: Theme.spacingS
 
                                 StyledText {
-                                    text: root.tr("Models") + " \u00b7 " + root.tr("7 days")
+                                    text: root.tr("Models") + " \u00b7 " + root.usageStats[1].label
                                     font.pixelSize: Theme.fontSizeMedium
                                     font.weight: Font.Medium
                                     color: Theme.surfaceText
                                 }
 
                                 Repeater {
-                                    model: root.modelFamilies
+                                    model: root.visibleFamilies
 
                                     delegate: Column {
                                         id: familyRow
                                         required property var modelData
-                                        readonly property real viewTotal: root.familyViewTotal(modelData)
                                         readonly property bool multi: modelData.versions.length > 1
                                         readonly property bool expanded: multi && root.expandedFamilies[modelData.family] === true
                                         width: modelsContent.width
@@ -1480,24 +1674,22 @@ PluginComponent {
 
                                         Item {
                                             width: parent.width
-                                            height: familyLabel.height
+                                            height: familyLine.height
 
-                                            StyledText {
-                                                id: familyLabel
+                                            DetailLine {
+                                                id: familyLine
                                                 anchors.left: parent.left
-                                                anchors.right: familyRow.multi ? familyChevron.left : parent.right
-                                                elide: Text.ElideRight
-                                                text: (familyRow.multi ? familyRow.modelData.family : familyRow.modelData.versions[0].name)
-                                                      + "  " + root.formatTokens(familyRow.viewTotal)
-                                                font.pixelSize: Theme.fontSizeSmall
-                                                color: Theme.surfaceText
+                                                anchors.right: familyChevron.left
+                                                name: familyRow.multi ? familyRow.modelData.family : familyRow.modelData.versions[0].name
+                                                value: root.formatTokens(familyRow.modelData.viewTotal)
+                                                strong: true
                                             }
 
                                             DankIcon {
                                                 id: familyChevron
                                                 anchors.right: parent.right
                                                 anchors.verticalCenter: parent.verticalCenter
-                                                visible: familyRow.multi
+                                                opacity: familyRow.multi ? 1 : 0
                                                 name: familyRow.expanded ? "expand_less" : "expand_more"
                                                 size: 16
                                                 color: Theme.surfaceVariantText
@@ -1505,6 +1697,7 @@ PluginComponent {
 
                                             MouseArea {
                                                 anchors.fill: parent
+                                                anchors.margins: -2
                                                 enabled: familyRow.multi
                                                 cursorShape: Qt.PointingHandCursor
                                                 onClicked: root.toggleFamily(familyRow.modelData.family)
@@ -1512,74 +1705,38 @@ PluginComponent {
                                         }
 
                                         Rectangle {
-                                            id: familyBar
                                             width: parent.width
-                                            height: root.showAccountSplit ? 10 : 6
+                                            height: 6
                                             radius: 3
                                             color: Theme.surfaceVariant
-                                            clip: true
 
                                             Rectangle {
-                                                width: familyBar.width * familyRow.viewTotal / root.modelFamilies[0].total
+                                                width: parent.width * Math.min(1, familyRow.modelData.viewTotal / root.modelFamilies[0].total)
                                                 height: parent.height
                                                 radius: parent.radius
                                                 color: familyRow.modelData.color
                                             }
-
-                                            Row {
-                                                Repeater {
-                                                    model: root.showAccountSplit
-                                                           ? root.accountBoxes(familyRow.modelData.total, root.activity, familyRow.modelData) : []
-
-                                                    delegate: AccountOutline {
-                                                        required property var modelData
-                                                        width: Math.max(3, familyBar.width * modelData.value / root.modelFamilies[0].total)
-                                                        height: familyBar.height
-                                                        accountColor: root.accountColors[modelData.authIndex]
-                                                    }
-                                                }
-                                            }
                                         }
 
                                         Column {
-                                            id: versionList
                                             visible: familyRow.expanded
                                             width: parent.width
-                                            leftPadding: Theme.spacingM
                                             topPadding: 2
                                             spacing: 4
 
                                             Repeater {
-                                                model: familyRow.expanded ? familyRow.modelData.versions : []
+                                                model: familyRow.expanded
+                                                       ? familyRow.modelData.versions
+                                                             .map(version => ({ name: version.name, total: root.familyViewTotal(version) }))
+                                                             .filter(version => version.total > 0)
+                                                             .sort((a, b) => b.total - a.total) : []
 
-                                                delegate: Column {
-                                                    id: versionRow
+                                                delegate: DetailLine {
                                                     required property var modelData
-                                                    readonly property real viewTotal: root.familyViewTotal(modelData)
-                                                    width: versionList.width - Theme.spacingM
-                                                    spacing: 2
-
-                                                    StyledText {
-                                                        width: parent.width
-                                                        elide: Text.ElideRight
-                                                        text: versionRow.modelData.name + "  " + root.formatTokens(versionRow.viewTotal)
-                                                        font.pixelSize: Theme.fontSizeSmall - 1
-                                                        color: Theme.surfaceVariantText
-                                                    }
-
-                                                    Rectangle {
-                                                        width: parent.width
-                                                        height: 4
-                                                        radius: 2
-                                                        color: Theme.surfaceVariant
-
-                                                        Rectangle {
-                                                            width: parent.width * versionRow.viewTotal / familyRow.modelData.total
-                                                            height: parent.height
-                                                            radius: parent.radius
-                                                            color: Theme.withAlpha(familyRow.modelData.color, 0.6)
-                                                        }
-                                                    }
+                                                    width: modelsContent.width - familyChevron.width
+                                                    indent: Theme.spacingM
+                                                    name: modelData.name
+                                                    value: root.formatTokens(modelData.total)
                                                 }
                                             }
                                         }
@@ -1588,278 +1745,14 @@ PluginComponent {
                             }
                         }
 
-                        Item {
+                        StyledText {
                             width: accountsColumn.width - 2 * Theme.spacingM
                             anchors.horizontalCenter: parent.horizontalCenter
-                            height: 32
-                            visible: root.focusedIndex >= 0
-
-                            StyledText {
-                                anchors.left: parent.left
-                                anchors.verticalCenter: parent.verticalCenter
-                                text: root.tr("Accounts")
-                                font.pixelSize: Theme.fontSizeSmall
-                                font.weight: Font.Medium
-                                color: Theme.surfaceVariantText
-                            }
-
-                            Row {
-                                anchors.right: parent.right
-                                anchors.verticalCenter: parent.verticalCenter
-                                spacing: Theme.spacingXS
-
-                                DankActionButton {
-                                    buttonSize: 26
-                                    iconName: root.pillProvider && root.isUntracked(root.pillProvider.provider) ? "notifications_off" : "notifications"
-                                    iconColor: root.pillProvider && root.isUntracked(root.pillProvider.provider) ? Theme.surfaceVariantText : Theme.surfaceText
-                                    tooltipText: root.tr("Warnings on the taskbar")
-                                    onClicked: if (root.pillProvider) root.toggleTracking(root.pillProvider.provider)
-                                }
-
-                            }
-                        }
-
-                        Repeater {
-                            model: root.pillProvider ? root.pillProvider.accounts : []
-
-                            delegate: StyledRect {
-                                id: accountCard
-                                required property var modelData
-
-                                readonly property bool healthy: !modelData.disabled && !modelData.unavailable
-                                                                && (modelData.status === "active" || modelData.supported === false)
-                                readonly property var accountColor: root.cardAccountColor(modelData.authIndex)
-                                property bool expanded: (healthy && !modelData.noQuota) || !!modelData.error
-
-                                width: accountsColumn.width - 2 * Theme.spacingM
-                                anchors.horizontalCenter: parent.horizontalCenter
-                                height: accountHeader.height + (expanded ? accountBody.height + Theme.spacingS : 0)
-                                radius: Theme.cornerRadius
-                                color: Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
-                                border.width: accountColor ? 2 : 1
-                                border.color: accountColor || (accountCard.healthy ? (accountCard.modelData.headline ? Theme.primary : Theme.outlineLight) : Theme.withAlpha(Theme.error, 0.5))
-                                clip: true
-
-                                Behavior on height {
-                                    NumberAnimation {
-                                        duration: Theme.shortDuration
-                                        easing.type: Easing.OutCubic
-                                    }
-                                }
-
-                                Item {
-                                    id: accountHeader
-                                    width: parent.width
-                                    height: 44
-
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: accountCard.expanded = !accountCard.expanded
-                                    }
-
-                                    Row {
-                                        anchors.left: parent.left
-                                        anchors.leftMargin: Theme.spacingM
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        spacing: Theme.spacingS
-
-                                        Rectangle {
-                                            width: 8
-                                            height: 8
-                                            radius: 4
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            color: accountCard.modelData.disabled || accountCard.modelData.unavailable
-                                                   || accountCard.modelData.supported === false
-                                                   ? Theme.surfaceVariantText
-                                                   : accountCard.modelData.status !== "active" ? Theme.error : Theme.success
-                                        }
-
-                                        StyledText {
-                                            text: accountCard.modelData.label || accountCard.modelData.account
-                                            font.pixelSize: Theme.fontSizeMedium
-                                            color: Theme.surfaceText
-                                            anchors.verticalCenter: parent.verticalCenter
-                                        }
-
-                                        StyledText {
-                                            visible: accountCard.modelData.headline
-                                            text: root.tr("shown")
-                                            font.pixelSize: Theme.fontSizeSmall
-                                            color: Theme.primary
-                                            anchors.verticalCenter: parent.verticalCenter
-                                        }
-
-                                        StyledText {
-                                            visible: accountCard.modelData.disabled
-                                            text: root.tr("disabled")
-                                            font.pixelSize: Theme.fontSizeSmall
-                                            color: Theme.error
-                                            anchors.verticalCenter: parent.verticalCenter
-                                        }
-
-                                        StyledText {
-                                            visible: accountCard.modelData.unavailable
-                                            text: root.tr("unavailable")
-                                            font.pixelSize: Theme.fontSizeSmall
-                                            color: Theme.warning
-                                            anchors.verticalCenter: parent.verticalCenter
-                                        }
-
-                                        StyledText {
-                                            visible: accountCard.modelData.supported === false
-                                            text: root.tr("unsupported")
-                                            font.pixelSize: Theme.fontSizeSmall
-                                            color: Theme.surfaceVariantText
-                                            anchors.verticalCenter: parent.verticalCenter
-                                        }
-                                    }
-
-                                    DankIcon {
-                                        anchors.right: parent.right
-                                        anchors.rightMargin: Theme.spacingM
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        name: accountCard.expanded ? "expand_less" : "expand_more"
-                                        size: 18
-                                        color: Theme.surfaceVariantText
-                                    }
-                                }
-
-                                Column {
-                                    id: accountBody
-                                    anchors.top: accountHeader.bottom
-                                    width: parent.width - 2 * Theme.spacingM
-                                    anchors.horizontalCenter: parent.horizontalCenter
-                                    spacing: Theme.spacingS
-                                    visible: accountCard.expanded
-
-                                    Row {
-                                        spacing: Theme.spacingM
-
-                                        StyledText {
-                                            text: accountCard.modelData.status
-                                            font.pixelSize: Theme.fontSizeSmall
-                                            color: Theme.surfaceVariantText
-                                        }
-
-                                        StyledText {
-                                            visible: !!accountCard.modelData.lastRequestAt
-                                            text: root.tr("last request") + " " + root.formatAge(accountCard.modelData.lastRequestAt)
-                                            font.pixelSize: Theme.fontSizeSmall
-                                            color: Theme.surfaceVariantText
-                                        }
-
-                                        Row {
-                                            spacing: 2
-                                            DankIcon {
-                                                name: "check"
-                                                size: 13
-                                                color: Theme.success
-                                                anchors.verticalCenter: parent.verticalCenter
-                                            }
-                                            StyledText {
-                                                text: String(accountCard.modelData.success)
-                                                font.pixelSize: Theme.fontSizeSmall
-                                                color: Theme.surfaceVariantText
-                                                anchors.verticalCenter: parent.verticalCenter
-                                            }
-                                        }
-
-                                        Row {
-                                            spacing: 2
-                                            DankIcon {
-                                                name: "close"
-                                                size: 13
-                                                color: accountCard.modelData.failed > 0 ? Theme.error : Theme.surfaceVariantText
-                                                anchors.verticalCenter: parent.verticalCenter
-                                            }
-                                            StyledText {
-                                                text: String(accountCard.modelData.failed)
-                                                font.pixelSize: Theme.fontSizeSmall
-                                                color: Theme.surfaceVariantText
-                                                anchors.verticalCenter: parent.verticalCenter
-                                            }
-                                        }
-                                    }
-
-                                    StyledText {
-                                        visible: accountCard.modelData.error !== ""
-                                        width: parent.width
-                                        text: accountCard.modelData.error
-                                        font.pixelSize: Theme.fontSizeSmall
-                                        font.italic: accountCard.healthy
-                                        color: accountCard.healthy ? Theme.surfaceVariantText : Theme.error
-                                        wrapMode: Text.WordWrap
-                                    }
-
-                                    StyledText {
-                                        visible: accountCard.modelData.noQuota
-                                        text: root.tr("no quota reported")
-                                        font.pixelSize: Theme.fontSizeSmall
-                                        font.italic: true
-                                        color: Theme.surfaceVariantText
-                                    }
-
-                                    Repeater {
-                                        model: accountCard.modelData.groups
-
-                                        delegate: Column {
-                                            id: groupRow
-                                            required property var modelData
-                                            width: accountBody.width
-                                            spacing: 2
-
-                                            Item {
-                                                width: parent.width
-                                                height: groupLabel.height
-
-                                                StyledText {
-                                                    id: groupLabel
-                                                    anchors.left: parent.left
-                                                    text: groupRow.modelData.label || groupRow.modelData.id
-                                                    font.pixelSize: Theme.fontSizeSmall
-                                                    color: Theme.surfaceText
-                                                }
-
-                                                StyledText {
-                                                    anchors.right: remainingPct.left
-                                                    anchors.rightMargin: Theme.spacingS
-                                                    text: root.formatCountdown(groupRow.modelData.resetTime)
-                                                    font.pixelSize: Theme.fontSizeSmall
-                                                    color: Theme.surfaceVariantText
-                                                }
-
-                                                StyledText {
-                                                    id: remainingPct
-                                                    anchors.right: parent.right
-                                                    text: Math.round(groupRow.modelData.remainingFraction * 100) + "%"
-                                                    font.pixelSize: Theme.fontSizeSmall
-                                                    color: root.ringColor(groupRow.modelData.remainingFraction)
-                                                }
-                                            }
-
-                                            Rectangle {
-                                                width: parent.width
-                                                height: 6
-                                                radius: 3
-                                                color: Theme.surfaceVariant
-
-                                                Rectangle {
-                                                    width: parent.width * Math.max(0, Math.min(1, groupRow.modelData.remainingFraction))
-                                                    height: parent.height
-                                                    radius: parent.radius
-                                                    color: root.ringColor(groupRow.modelData.remainingFraction)
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    Item {
-                                        width: 1
-                                        height: Theme.spacingXS
-                                    }
-                                }
-                            }
+                            visible: root.shown !== null && (root.shown.unsupportedProviders || []).length > 0
+                            text: visible ? root.tr("unsupported") + ": " + root.shown.unsupportedProviders.join(", ") : ""
+                            wrapMode: Text.WordWrap
+                            font.pixelSize: Theme.fontSizeSmall
+                            color: Theme.surfaceVariantText
                         }
                     }
                 }
@@ -1868,8 +1761,7 @@ PluginComponent {
             StyledRect {
                 id: dayOverlay
                 property Item day: null
-                readonly property var detail: day ? root.dayDetail(day.modelData, rowHeight, 120) : null
-                readonly property real rowHeight: Math.ceil(dayFontMetrics.height)
+                readonly property var detail: day ? root.dayRows(day.modelData) : null
                 readonly property var position: {
                     if (!day)
                         return { x: 0, y: 0 };
@@ -1881,168 +1773,78 @@ PluginComponent {
                 }
 
                 z: 10
-                visible: !!day && day.visible && activityCard.hasTokens
+                visible: !!day && day.visible
+                opacity: root.dataLive ? 1 : 0.6
                 x: position.x
                 y: position.y
-                width: Math.min(popoutRoot.width - 2 * Theme.spacingM, Math.max(dayHeader.implicitWidth, dayBody.implicitWidth, dayFooter.implicitWidth) + 2 * Theme.spacingS)
+                width: Math.min(popoutRoot.width - 2 * Theme.spacingM, 280)
                 height: dayContents.height + 2 * Theme.spacingS
                 radius: Theme.cornerRadius
                 color: Theme.surfaceContainerHighest ?? Theme.surfaceContainerHigh
                 border.width: 1
                 border.color: Theme.outline
 
-                FontMetrics {
-                    id: dayFontMetrics
-                    font: dayFooter.font
-                }
-
                 Column {
                     id: dayContents
                     x: Theme.spacingS
                     y: Theme.spacingS
                     width: parent.width - 2 * Theme.spacingS
-                    spacing: Theme.spacingS
+                    spacing: Theme.spacingXS
 
-                    Item {
-                        id: dayHeader
+                    DetailLine {
                         width: parent.width
-                        height: Math.max(dayDate.implicitHeight, allTokens.implicitHeight)
-                        implicitWidth: dayDate.implicitWidth + Theme.spacingS + allTokens.implicitWidth
-
-                        DayDetailText {
-                            id: dayDate
-                            text: {
-                                var date = new Date((dayOverlay.detail?.date || "") + "T00:00:00");
-                                return isNaN(date.getTime()) ? "" : date.toLocaleDateString(Qt.locale(), "ddd d MMM");
-                            }
+                        strong: true
+                        name: {
+                            var date = new Date((dayOverlay.detail?.date || "") + "T00:00:00");
+                            return isNaN(date.getTime()) ? "" : date.toLocaleDateString(Qt.locale(), "ddd d MMM");
                         }
-
-                        DayDetailText {
-                            id: allTokens
-                            anchors.right: parent.right
-                            text: root.formatTokens(dayOverlay.detail?.total || 0)
-                            font.weight: Font.Medium
-                        }
+                        value: root.usageHasTokens && !dayOverlay.detail?.missing ? root.formatTokens(dayOverlay.detail?.total || 0) + " " + root.tr("tokens") : ""
                     }
 
-                    Column {
-                        id: dayBody
-                        spacing: root.dayPartGap
-                        height: dayOverlay.detail?.height ?? 120
+                    Repeater {
+                        model: dayOverlay.detail?.groups ?? []
 
-                        Repeater {
-                            model: dayOverlay.detail?.parts ?? []
+                        delegate: Column {
+                            id: dayGroup
+                            required property var modelData
+                            readonly property bool named: modelData.name !== ""
+                            width: dayContents.width
+                            topPadding: named ? Theme.spacingXS : 0
+                            spacing: 2
 
-                            delegate: Row {
-                                id: dayPart
-                                required property var modelData
-                                readonly property bool grouped: modelData.key !== "day"
-                                height: modelData.h
-                                spacing: Theme.spacingXS
+                            DetailLine {
+                                visible: dayGroup.named
+                                width: parent.width
+                                strong: true
+                                showSwatch: true
+                                roundSwatch: true
+                                swatch: dayGroup.modelData.color || "transparent"
+                                name: dayGroup.modelData.name
+                                value: root.formatTokens(dayGroup.modelData.tokens)
+                            }
 
-                                Column {
-                                    id: accountLabel
-                                    visible: dayPart.grouped
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    width: 110
+                            Repeater {
+                                model: dayGroup.modelData.models
 
-                                    DayDetailText {
-                                        width: parent.width
-                                        height: dayOverlay.rowHeight
-                                        horizontalAlignment: Text.AlignRight
-                                        verticalAlignment: Text.AlignVCenter
-                                        text: dayPart.modelData.name
-                                        color: dayPart.modelData.dashed ? Theme.surfaceVariantText : Theme.surfaceText
-                                        elide: Text.ElideRight
-                                    }
-
-                                    DayDetailText {
-                                        width: parent.width
-                                        height: dayOverlay.rowHeight
-                                        horizontalAlignment: Text.AlignRight
-                                        verticalAlignment: Text.AlignVCenter
-                                        text: root.formatTokens(dayPart.modelData.tokens)
-                                        color: Theme.surfaceVariantText
-                                    }
-                                }
-
-                                Item {
-                                    id: bracket
-                                    visible: dayPart.grouped
-                                    width: 8
-                                    height: dayPart.height
-
-                                    Repeater {
-                                        model: dayPart.modelData.dashed ? Math.ceil(bracket.height / 5) : 1
-
-                                        delegate: Rectangle {
-                                            required property int index
-                                            anchors.right: parent.right
-                                            y: index * 5
-                                            width: 2
-                                            height: dayPart.modelData.dashed ? Math.min(3, bracket.height - y) : bracket.height
-                                            color: dayPart.modelData.color
-                                        }
-                                    }
-
-                                    Rectangle {
-                                        width: parent.width
-                                        height: 2
-                                        color: dayPart.modelData.color
-                                    }
-
-                                    Rectangle {
-                                        anchors.bottom: parent.bottom
-                                        width: parent.width
-                                        height: 2
-                                        color: dayPart.modelData.color
-                                    }
-                                }
-
-                                Item {
-                                    id: partBar
-                                    width: 18
-                                    height: dayPart.height
-
-                                    Repeater {
-                                        model: dayPart.modelData.slices
-
-                                        delegate: Rectangle {
-                                            required property var modelData
-                                            width: partBar.width
-                                            y: modelData.y
-                                            height: modelData.h
-                                            color: modelData.color
-                                        }
-                                    }
-                                }
-
-                                Column {
-                                    anchors.verticalCenter: parent.verticalCenter
-
-                                    Repeater {
-                                        model: dayPart.modelData.slices
-
-                                        delegate: DayDetailLabel {
-                                            required property var modelData
-                                            height: dayOverlay.rowHeight
-                                            name: modelData.name
-                                            tokens: modelData.tokens
-                                            swatchColor: modelData.color
-                                            muted: dayPart.modelData.dashed
-                                            availableWidth: popoutRoot.width - 2 * (Theme.spacingM + Theme.spacingS)
-                                                - partBar.width - dayPart.spacing
-                                                - (dayPart.grouped ? accountLabel.width + bracket.width + 2 * dayPart.spacing : 0)
-                                        }
-                                    }
+                                delegate: DetailLine {
+                                    required property var modelData
+                                    width: dayGroup.width
+                                    indent: dayGroup.named ? Theme.spacingM : 0
+                                    showSwatch: !dayGroup.named
+                                    swatch: modelData.color
+                                    name: modelData.name
+                                    value: root.formatTokens(modelData.tokens)
                                 }
                             }
                         }
                     }
 
-                    DayDetailText {
-                        id: dayFooter
-                        text: dayOverlay.detail ? activityCard.dayTooltip(dayOverlay.detail) : ""
+                    StyledText {
+                        topPadding: Theme.spacingXS
+                        text: dayOverlay.detail?.missing ? root.tr("no data")
+                              : dayOverlay.detail ? root.formatCount(dayOverlay.detail.requests) + " " + root.tr("requests")
+                              + (dayOverlay.detail.failed > 0 ? " \u00b7 " + root.formatCount(dayOverlay.detail.failed) + " " + root.tr("failed") : "") : ""
+                        font.pixelSize: Theme.fontSizeSmall
                         color: Theme.surfaceVariantText
                     }
                 }

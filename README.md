@@ -5,7 +5,7 @@ plugin that shows how much provider quota remains behind your
 [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) server — every
 provider, every quota group, without opening another tool.
 
-<img width="390" alt="Popout with two accounts: account chips, account outlines in the Daily Activity and Models bars" src="docs/images/popout.png" /> <img width="390" alt="Daily Activity hover: each account's part of the day with its models" src="docs/images/hover.png" />
+<img width="390" alt="Popout with two accounts: quota rows, one-line accounts, and day bars stacked by account" src="docs/images/popout.png" /> <img width="390" alt="Day hover: that day's tokens per account with each account's models" src="docs/images/hover.png" />
 
 
 
@@ -26,42 +26,55 @@ freedesktop Secret Service vault.
 
 ## What you get
 
-- **Taskbar pill** — a ring filled with what *remains* of the focused
-  provider's quota: the worst group of the live account that took the newest
-  request, so the ring tracks the account the proxy is using now. The pill
-  follows the provider that took the newest request. Picking a provider by
-  hand holds until requests move to another provider. A provider whose
-  accounts are all not serving — disabled, unavailable, or (when supported) in
-  a non-active state — gets a dot on its tab. The pill shows a warning glyph
-  only when every tracked provider has that dot. An error
-  string on an account that is otherwise serving traffic (an unreadable quota
-  meter upstream, say) is degraded telemetry: shown in the account detail,
-  never a warning. Dimmed with `?` the
-  moment the data stops being live: old numbers are never dressed up as
-  current.
-- **Popout carousel** — one page per provider, arrows or ←/→ to navigate.
-  Each page: the aggregate's quota bars with reset countdowns, then every
-  account behind it — health, last request, success/failed counters,
-  per-group bars. Disabled accounts are listed and labelled, never silently
-  dropped; an account whose provider reports no quota says "no quota
-  reported" instead of pretending 0%. Header shows the server cache's age and
-  a refresh button.
-- **Daily activity and tokens by model.** Each provider page charts requests
-  per day for the last week, and — when the bridge reports per-model token
-  counters (pi-bridge 0.10.0 or newer, contract v2 `models` field) — a
-  stacked tokens-per-model chart with a dynamic legend. Counters are
-  cumulative on the server and vanish when it restarts; the plugin snapshots
-  them on every poll, diffs successive snapshots, and sums the deltas per
-  local day. When a counter drops between two polls the plugin reads it as a
-  restart and counts the new value as traffic since the restart, so a restart
-  costs at most one poll interval of history instead of the whole day. Models are
-  data: whatever the bridge reports renders, nothing is named in code.
+- **Taskbar pill** — the focused provider's logo and a ring filled with what
+  *remains* of its quota, with the number beside it (under it on a vertical bar):
+  the worst group of the live account that took the newest request, so the
+  ring tracks the account the proxy is using now. The pill follows the
+  provider that took the newest request. Picking a provider by hand holds
+  until requests move to another provider. A provider whose accounts are all
+  not serving — disabled, unavailable, or (when supported) in a non-active
+  state — gets a red dot on its tab. The pill shows a warning glyph only when
+  every tracked provider has that dot. An error string on an account that is
+  otherwise serving traffic (an unreadable quota meter upstream, say) is
+  degraded telemetry: shown in the account detail, never a warning. The pill
+  dims and adds `?` the moment the data stops being live: old numbers are
+  never dressed up as current. Error text stays in the popout, never on the
+  bar.
+- **Popout** — a status line (loading, refreshing, updated, stale, or the
+  fetch error) with the taskbar-warnings bell and a refresh button, then one
+  tab per provider with its remaining percentage; click a tab or press ←/→.
+  Each provider page reads top to bottom:
+  - **Quota remaining** — one row per quota group with its reset countdown
+    and a bar. The group that sets the taskbar number is in bold. A pace
+    warning appears only when a group is being used faster than its window.
+  - **Accounts** — one line per account: health dot, name, state tags and its
+    lowest remaining percentage. Click to see last request, ok/failed
+    counters, any error and per-group bars. Accounts with an error open by
+    default; what you open or close stays that way across refreshes.
+    Disabled accounts are listed and labelled, never silently dropped; an
+    account whose provider reports no quota says "no quota reported" instead
+    of pretending 0%.
+  - **Usage** — today's and the week's tokens and requests, tokens per day
+    for the last seven calendar days, and tokens per model.
+
+  When a fetch fails, the last good numbers stay on screen, dimmed, with the
+  error and their age in the status line.
+- **Tokens per day and per model.** When the bridge reports per-model token
+  counters (pi-bridge 0.10.0 or newer, contract v2 `models` field) each
+  provider page charts tokens per day, stacked by model, and lists tokens per
+  model; without them it charts requests per day. Counters are cumulative on
+  the server and vanish when it restarts; the plugin snapshots them on every
+  poll, diffs successive snapshots, and sums the deltas per local day. When a
+  counter drops between two polls the plugin reads it as a restart and counts
+  the new value as traffic since the restart, so a restart costs at most one
+  poll interval of history instead of the whole day. Models are data:
+  whatever the bridge reports renders, nothing is named in code.
 - **Usage per account.** With two or more accounts on a provider, each
-  account gets a colour: outlined boxes in the Daily Activity and Models bars
-  show its share, and account chips filter the usage cards to one account.
-  Hovering a day shows that day's bar split by account, with each account's
-  models beside its part. Requires pi-bridge 0.12.0 or newer; usage from before
-  the bridge update shows as "earlier".
+  account gets a colour: the day bars stack by account instead of by model,
+  and account chips filter the usage section to one account. Hovering a day
+  lists that day's tokens per account with each account's models. Requires
+  pi-bridge 0.12.0 or newer; usage the bridge did not attribute to an account
+  shows as "other".
 - **Providers are data, not code.** Group ids, labels, and providers come
   from the bridge and are never used in rendering or aggregation decisions;
   the one exception is picking an icon, and an unknown provider gets a

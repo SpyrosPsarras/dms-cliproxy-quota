@@ -19,9 +19,12 @@ context.providerRow.x = 44;
 context.contentWidth = 388;
 vm.runInNewContext(body, context);
 assert.equal(context.contentX, 0);
-const expanded = source.match(/^\s+property bool expanded: (.*)/m)[1];
-assert.equal(vm.runInNewContext(expanded, {healthy: true, modelData: {noQuota: true, error: 'provider API failed: 429'}}), true);
-assert.equal(vm.runInNewContext(expanded, {healthy: true, modelData: {noQuota: true, error: ''}}), false);
+const expanded = source.match(/^\s+readonly property bool expanded: (root\.expandedAccounts.*)/m)[1];
+const card = (error, expandedAccounts = {}) => vm.runInNewContext(expanded, {root: {expandedAccounts}, expandKey: 'a1', modelData: {error}});
+assert.equal(card('provider API failed: 429'), true, 'an account with an error opens');
+assert.equal(card(''), false, 'a quiet account stays one line');
+assert.equal(card('', {a1: true}), true, 'a manual expand survives the refresh');
+assert.equal(card('provider API failed: 429', {a1: false}), false, 'a manual collapse survives the refresh');
 const follow = '(function() {' + source.match(/function followActiveProvider\(\) \{([\s\S]*?)\n    \}/)[1] + '})()';
 const saved = {};
 const root = {visibleProviders: [{provider: 'claude', lastRequestEpoch: 100}, {provider: 'codex', lastRequestEpoch: 200}, {provider: 'idle', lastRequestEpoch: null}],

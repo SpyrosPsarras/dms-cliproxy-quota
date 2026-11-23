@@ -16,8 +16,9 @@ the proxy routes each request to whichever live account has headroom.
 _Avoid_: auth file, subscription, user
 
 **Account colour**:
-Colour assigned by account list order and shared by the card border, chip swatch,
-and usage outlines. It applies only to providers with at least two accounts
+Colour assigned by account list order and shared by the account line's colour
+bar, chip swatch, and the day bars' account segments. Fixed hues that avoid the
+health colours. It applies only to providers with at least two accounts
 and only after per-account token data arrives.
 
 **Live account**:
@@ -45,7 +46,8 @@ _Avoid_: usage, used, consumed
 A provider's headline number: the worst group of the live account that took the
 newest request. If no live account reports a request time, the worst group
 across all live accounts.
-The winning account has `headline: true` and is tagged "shown" in the account list.
+The winning account has `headline: true` and is tagged "shown above" in the account list
+when the provider has more than one account.
 _Avoid_: total, average
 
 **Focused provider**:

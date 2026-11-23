@@ -90,23 +90,27 @@ and must not copy that mapping.
 **Popout — a carousel, one page per provider.** Arrows at the top navigate; the page
 order is the server's order. Each page:
 
-- Headline: the provider's aggregate (worst group of the live account that took
-  the newest request, or the worst live account when none reports a request
-  time) with one bar per group of the aggregate's account view,
-  reset countdowns from `resetTime`.
-- Expandable account list: every account, including disabled ones labelled as
-  disabled. Per account: masked label, health line (`status`, `error`,
-  `lastRequestAt`), per-group bars, `success`/`failed` counters. Disabled and
-  unavailable accounts render but never feed the aggregate. The account behind
-  the aggregate gets a "shown" tag and an accent border unless an account colour
-  replaces the border.
-- Usage cards: when per-account tokens are available for a provider with multiple
-  accounts, Daily Activity and Models outline each account's share, and account
-  chips filter those cards and Token Consumption. Hovering a day opens a box
-  under the bars with that day's bar split by account (unsplit usage as
-  "earlier"), each part labelled with its account and its models.
-- Header: `cache.updatedAt` age and a refresh button hitting `?refresh=1` (server
-  rate-limits that to its cache TTL, so a mashed button degrades to a normal read).
+- Quota remaining: one row per group of the aggregate's account (worst group
+  of the live account that took the newest request, or the worst live account
+  when none reports a request time), reset countdown from `resetTime`, a bar.
+  The group equal to the aggregate is bold. Pace shows only when over pace.
+- Account list, one line each, expandable: every account, including disabled
+  ones labelled as disabled. The line: health dot, masked label, state tags,
+  lowest remaining percentage. Expanded: `status` when not active,
+  `lastRequestAt`, `success`/`failed` counters, `error`, per-group bars.
+  Disabled and unavailable accounts render but never feed the aggregate. With
+  more than one account the account behind the aggregate is tagged "shown
+  above". Unhealthy accounts get a red border; account colour is a small bar.
+- Usage: today's and the week's tokens and requests, tokens per day over the
+  last seven calendar days, tokens per model. When per-account tokens are
+  available for a provider with multiple accounts, day bars stack by account
+  (unattributed usage as "other") and account chips filter the section.
+  Hovering a day lists its tokens per account with each account's models.
+- Header: status line (loading, refreshing, `cache.updatedAt` age, stale, or the
+  fetch error with the age of the last good data), the bell, and a refresh
+  button hitting `?refresh=1` (server rate-limits that to its cache TTL, so a
+  mashed button degrades to a normal read). A failed fetch keeps the last good
+  data on screen, dimmed.
 
 **Taskbar pill.** Ring = the focused provider's aggregate. If the focused provider has
 no groups, a glyph instead of a ring. A provider has a problem (dot on its tab)
