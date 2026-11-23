@@ -506,7 +506,7 @@ SOURCE=$(printf '%s' "https://proxy.test" | sha256sum | cut -c1-16)
 CRED_URL=$(printf 'https://%s:%s@%s' user s3cr3t proxy.test/v1)
 NOKEY=$(CLIPROXY_QUOTA_PI_CONFIG=/nonexistent CLIPROXY_QUOTA_ENDPOINT="$CRED_URL" run_script)
 if [ "$(jq -r '.source' <<<"$OUT")" = "$SOURCE" ] \
-   && [ "$(jq -r '.source' <<<"$(SHIM_FAIL= run_script --force)")" = "$SOURCE" ] \
+   && [ "$(jq -r '.source' <<<"$(SHIM_FAIL='' run_script --force)")" = "$SOURCE" ] \
    && [ "$(jq -r '.status' <<<"$NOKEY")" = "no-key" ] && [ "$(jq -r '.source | length' <<<"$NOKEY")" = "16" ] \
    && ! grep -q s3cr3t <<<"$NOKEY"; then
     pass "every result names its proxy by an opaque id, also before the key resolves, never with credentials"
