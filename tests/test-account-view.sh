@@ -369,5 +369,6 @@ test('day overlay never covers the bars when it fits above them', () => {
     assert.equal(y(352, 432), 440, 'below when it fits');
     assert.equal(y(400, 480), 212, 'above when it does not fit below');
     assert.equal(y(100, 180, 500), 120, 'as low as the popout allows when it fits neither way');
+    assert.equal(y(-95, -15), 0, 'a day scrolled off the top never puts the detail above the popout');
 });
 NODE

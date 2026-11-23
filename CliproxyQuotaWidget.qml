@@ -572,8 +572,8 @@ PluginComponent {
         var centeredX = (left + right - width) / 2;
         var y = rowBottom + gap + height <= boundsHeight ? rowBottom + gap
               : rowTop - gap - height >= 0 ? rowTop - gap - height
-              : Math.max(0, boundsHeight - height);
-        return { x: Math.max(inset, Math.min(centeredX, boundsWidth - inset - width)), y: y };
+              : boundsHeight - height;
+        return { x: Math.max(inset, Math.min(centeredX, boundsWidth - inset - width)), y: Math.max(0, y) };
     }
 
     // Survives the refresh that rebuilds the family delegates.
@@ -1047,8 +1047,8 @@ PluginComponent {
                             width: tabContent.width + 2 * Theme.spacingM
                             radius: height / 2
                             color: focused ? Theme.withAlpha(Theme.primary, 0.16) : Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
-                            border.width: focused || activeFocus ? 2 : 1
-                            border.color: focused ? Theme.primary : activeFocus ? Theme.surfaceText : Theme.outlineLight
+                            border.width: focused ? 2 : 1
+                            border.color: focused ? Theme.primary : Theme.outlineLight
                             readonly property string tip: root.tabTooltip(modelData)
                             activeFocusOnTab: true
                             Accessible.role: Accessible.PageTab
@@ -1115,6 +1115,16 @@ PluginComponent {
                                 onClicked: root.focusPage(providerTab.index)
                                 onEntered: popoutTip.show(providerTab.tip, providerTab, 0, 0, "bottom")
                                 onExited: popoutTip.hide()
+                            }
+
+                            Rectangle {
+                                anchors.fill: parent
+                                anchors.margins: 3
+                                radius: height / 2
+                                visible: providerTab.activeFocus
+                                color: "transparent"
+                                border.width: 2
+                                border.color: Theme.surfaceText
                             }
 
                             Rectangle {
@@ -1914,23 +1924,27 @@ PluginComponent {
                 id: dayOverlay
                 property Item day: null
                 readonly property var detail: day ? root.dayRows(day.modelData) : null
+                readonly property real rowTop: popoutColumn.y + activityScroll.y - activityScroll.contentY
+                    + accountsColumn.y + activityCard.y + activityContent.y + barsRow.y
+                readonly property real rowBottom: rowTop + barsRow.height
+                readonly property real viewTop: popoutColumn.y + activityScroll.y
+                // Sized to the roomier side of the bars so it never has to cover them; it scrolls inside.
+                readonly property real room: Math.max(popoutRoot.height - rowBottom, rowTop) - Theme.spacingS
                 readonly property var position: {
                     if (!day)
                         return { x: 0, y: 0 };
                     var left = day.mapToItem(popoutRoot, 0, 0).x;
-                    var rowTop = popoutColumn.y + activityScroll.y - activityScroll.contentY
-                        + accountsColumn.y + activityCard.y + activityContent.y + barsRow.y;
-                    return root.dayOverlayPosition(left, left + day.width, rowTop, rowTop + barsRow.height, width, height,
+                    return root.dayOverlayPosition(left, left + day.width, rowTop, rowBottom, width, height,
                                                    popoutRoot.width, popoutRoot.height, Theme.spacingS, Theme.spacingM);
                 }
 
                 z: 10
-                visible: !!day && day.visible
+                visible: !!day && day.visible && rowBottom > viewTop && rowTop < viewTop + activityScroll.height
                 opacity: root.dataLive ? 1 : 0.6
                 x: position.x
                 y: position.y
                 width: Math.min(popoutRoot.width - 2 * Theme.spacingM, 280)
-                height: Math.min(dayContents.height + 2 * Theme.spacingS, popoutRoot.height - 2 * Theme.spacingS)
+                height: Math.max(0, Math.min(dayContents.height + 2 * Theme.spacingS, room))
 
                 HoverHandler {
                     id: dayOverlayHover
