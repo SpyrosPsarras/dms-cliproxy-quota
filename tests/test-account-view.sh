@@ -272,10 +272,11 @@ test('the status line says what the numbers are', () => {
     assert.equal(status({status: 'no-key', error: 'key unavailable'}), 'key unavailable');
     const shownBinding = source.match(/^    readonly property var shown: ([\s\S]*?)\n    [a-z]/m)[1];
     const shown = (quota, lastGood) => vm.runInContext(shownBinding, Object.assign(context, {quota, lastGood}));
-    const cached = {status: 'ok', origin: 'https://a.test'};
-    assert.equal(shown({status: 'unreachable', origin: 'https://a.test'}, cached), cached, 'same source keeps its cache');
-    assert.equal(shown({status: 'unreachable', origin: 'https://b.test'}, cached), null, 'another source never shows the old cache');
-    assert.equal(shown({status: 'no-key', origin: ''}, cached), cached, 'an unknown source keeps the cache, dimmed');
+    const cached = {status: 'ok', source: 'aaaa'};
+    assert.equal(shown({status: 'unreachable', source: 'aaaa'}, cached), cached, 'same source keeps its cache');
+    assert.equal(shown({status: 'no-key', source: 'bbbb'}, cached), null, 'another source never shows the old cache');
+    assert.equal(shown({status: 'script-error'}, cached), cached, 'an unknown source keeps the cache, dimmed');
+    assert.equal(shown({status: 'unreachable', source: 'aaaa'}, {status: 'ok'}).status, 'ok', 'a cache from before source ids still counts');
     context.forceFetch = true;
     context.quotaProcess.running = true;
     assert.equal(status(good), 'Refreshing…');

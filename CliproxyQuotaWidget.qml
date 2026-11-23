@@ -190,7 +190,7 @@ PluginComponent {
             quotaProcess.running = true;
     }
     readonly property var shown: quota && quota.status === "ok" ? quota
-        : lastGood && (!quota || !quota.origin || quota.origin === lastGood.origin) ? lastGood : null
+        : lastGood && (!quota?.source || !lastGood.source || quota.source === lastGood.source) ? lastGood : null
 
     function parseList(raw) {
         var seen = {};
@@ -721,9 +721,9 @@ PluginComponent {
                 Qt.callLater(() => quotaProcess.running = true);
                 return;
             }
-            root.forceFetch = root.forceFetch && root.quota?.status !== "ok";
             if (exitCode !== 0 || !root.receivedThisRun)
                 root.quota = ({ status: "script-error", error: "fetch failed", stale: true, providers: [] });
+            root.forceFetch = root.forceFetch && root.quota.status !== "ok";
         }
     }
 
