@@ -293,13 +293,13 @@ PluginComponent {
     readonly property string todayDate: Qt.formatDate(new Date(nowMs), "yyyy-MM-dd")
 
     // The last seven calendar days, oldest first; a day without history is an empty slot.
+    // Keyed on the date, not the clock, so the day delegates (and keyboard focus) survive each tick.
     readonly property var activity: {
         var byDate = {};
         (pillProvider?.activity || []).forEach(entry => byDate[entry.date] = entry);
         var days = [];
         for (var i = 6; i >= 0; i--) {
-            var day = new Date(nowMs);
-            day.setHours(12, 0, 0, 0);
+            var day = new Date(todayDate + "T12:00:00");
             day.setDate(day.getDate() - i);
             var key = Qt.formatDate(day, "yyyy-MM-dd");
             days.push(byDate[key] || { date: key, requests: 0, failed: 0, tokens: {}, missing: true });
@@ -1680,6 +1680,14 @@ PluginComponent {
                                                 activeFocusOnTab: true
                                                 Accessible.role: Accessible.Button
                                                 Accessible.name: dayLabel.text
+                                                Keys.onPressed: event => {
+                                                    var step = { [Qt.Key_Up]: -24, [Qt.Key_Down]: 24,
+                                                                 [Qt.Key_PageUp]: -dayScroll.height, [Qt.Key_PageDown]: dayScroll.height }[event.key];
+                                                    if (step === undefined || dayOverlay.day !== dayColumn)
+                                                        return;
+                                                    dayScroll.contentY = Math.max(0, Math.min(dayScroll.contentHeight - dayScroll.height, dayScroll.contentY + step));
+                                                    event.accepted = true;
+                                                }
                                                 onActiveFocusChanged: {
                                                     if (activeFocus) {
                                                         popoutRoot.reveal(dayPlot);
@@ -1923,6 +1931,7 @@ PluginComponent {
             StyledRect {
                 id: dayOverlay
                 property Item day: null
+                onDayChanged: dayScroll.contentY = 0
                 readonly property var detail: day ? root.dayRows(day.modelData) : null
                 readonly property real rowTop: popoutColumn.y + activityScroll.y - activityScroll.contentY
                     + accountsColumn.y + activityCard.y + activityContent.y + barsRow.y
@@ -1956,6 +1965,7 @@ PluginComponent {
                 border.color: Theme.outline
 
                 Flickable {
+                    id: dayScroll
                     anchors.fill: parent
                     anchors.margins: Theme.spacingS
                     contentHeight: dayContents.height
