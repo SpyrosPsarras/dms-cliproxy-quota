@@ -745,7 +745,7 @@ PluginComponent {
 
     readonly property string pillTooltip: {
         if (!pillProvider)
-            return statusText;
+            return quota === null ? tr("Loading…") : tr("no data");
         var state = remaining >= 0 ? Math.round(remaining * 100) + "% " + tr("remaining")
                   : pillProvider.problem === true ? tr("no account is serving") : tr("no quota reported");
         return pillProvider.provider + ": " + state + (dataLive ? "" : " · " + tr("stale"));
@@ -950,10 +950,14 @@ PluginComponent {
                 if (root.focusKey === "" || !popoutRoot.visible)
                     return;
                 Qt.callLater(() => {
+                    if (root.focusKey === "" || !popoutRoot.visible)
+                        return;
                     var active = popoutRoot.Window.activeFocusItem;
                     if (active && active !== popoutRoot && active.rowHeader !== true)
                         return;
                     var rows = { account: accountRows, family: familyRows, tab: providerTabs, chip: chipRows }[root.focusKey.split(":")[0]];
+                    if (!rows)
+                        return;
                     for (var i = 0; i < rows.count; i++) {
                         var row = rows.itemAt(i);
                         if (row && row.focusKey === root.focusKey) {

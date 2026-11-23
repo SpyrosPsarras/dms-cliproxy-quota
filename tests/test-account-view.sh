@@ -314,9 +314,9 @@ test('keyboard focus follows the account or model family when a poll reorders ro
     };
     const focused = {item: null};
     const tab = {forceActiveFocus() { focused.item = 'tab'; }};
-    const run = (focusKey, rows, active) => {
+    const run = (focusKey, rows, active, callLater = f => f()) => {
         focused.item = null;
-        const ctx = vm.createContext({root: {focusKey, focusedIndex: 0}, Qt: {callLater: f => f()},
+        const ctx = vm.createContext({root: {focusKey, focusedIndex: 0}, Qt: {callLater},
             popoutRoot: {visible: true, Window: {activeFocusItem: active}},
             accountRows: {count: rows.length, itemAt: i => rows[i]}, familyRows: {count: 0, itemAt: () => null},
             chipRows: {count: rows.length, itemAt: i => rows[i]},
@@ -331,6 +331,15 @@ test('keyboard focus follows the account or model family when a poll reorders ro
     assert.deepEqual(run('', [b, a], b.focusTarget), [null, ''], 'nothing to restore without a focused row');
     const t1 = row('tab:claude', 'claude'), t2 = row('tab:codex', 'codex');
     assert.deepEqual(run('tab:codex', [t2, t1], t1.focusTarget), ['codex', 'tab:codex'], 'a focused tab keeps focus when providers reorder');
+    const queued = [];
+    const twice = vm.createContext({root: {focusKey: 'account:a', focusedIndex: 0}, Qt: {callLater: f => queued.push(f)},
+        popoutRoot: {visible: true, Window: {activeFocusItem: b.focusTarget}},
+        accountRows: {count: 0, itemAt: () => null}, familyRows: {count: 0, itemAt: () => null},
+        chipRows: {count: 0, itemAt: () => null}, providerTabs: {count: 0, itemAt: () => undefined}});
+    queued.length = 0;
+    vm.runInContext(fn + '; restoreFocus(); restoreFocus();', twice);
+    assert.doesNotThrow(() => queued.forEach(f => f()), 'two queued restores after every provider vanished do not throw');
+    assert.equal(twice.root.focusKey, '');
     const c1 = row('chip:a1', 'chipA'), c2 = row('chip:b2', 'chipB');
     assert.deepEqual(run('chip:b2', [c2, c1], c1.focusTarget), ['chipB', 'chip:b2'], 'a focused chip keeps focus when chips reorder');
 });
