@@ -36,6 +36,30 @@ PluginComponent {
         }
     }
 
+    component ProviderMark: Item {
+        readonly property string iconSource: root.pillProvider ? root.providerIconSource(root.pillProvider.provider) : ""
+        width: root.iconSize
+        height: root.iconSize
+
+        Image {
+            anchors.fill: parent
+            visible: parent.iconSource !== ""
+            source: parent.iconSource
+            sourceSize.width: 2 * root.iconSize
+            sourceSize.height: 2 * root.iconSize
+            fillMode: Image.PreserveAspectFit
+            asynchronous: true
+        }
+
+        DankIcon {
+            anchors.centerIn: parent
+            visible: parent.iconSource === ""
+            name: root.pillIcon
+            size: root.iconSize
+            color: Theme.surfaceVariantText
+        }
+    }
+
     component QuotaRow: Column {
         id: quotaRow
         property var group: ({})
@@ -308,7 +332,8 @@ PluginComponent {
         if (selectedAccount === "")
             return entry;
         var account = entry.accounts?.[selectedAccount];
-        return { date: entry.date, requests: account?.requests || 0, failed: account?.failed || 0, tokens: account?.tokens || {} };
+        return { date: entry.date, requests: account?.requests || 0, failed: account?.failed || 0, tokens: account?.tokens || {},
+                 missing: entry.missing === true || !account };
     }
 
     readonly property var viewActivity: {
@@ -450,7 +475,7 @@ PluginComponent {
     function dayRows(allEntry) {
         var entry = viewEntry(allEntry);
         var detail = { date: entry.date, total: dayTokens(entry), requests: entry.requests + entry.failed,
-                       failed: entry.failed, missing: allEntry.missing === true, groups: [] };
+                       failed: entry.failed, missing: entry.missing === true, groups: [] };
         function add(key, name, color, tokens) {
             var models = modelRows(tokens);
             var total = models.reduce((sum, row) => sum + row.tokens, 0);
@@ -545,13 +570,17 @@ PluginComponent {
         .sort((a, b) => b.viewTotal - a.viewTotal)
 
     readonly property var usageStats: {
-        var today = { label: tr("Today"), tokens: 0, requests: 0 };
-        var week = { label: tr("7 days"), tokens: 0, requests: 0 };
+        var today = { label: tr("Today"), tokens: 0, requests: 0, missing: true };
+        var week = { label: tr("7 days"), tokens: 0, requests: 0, missing: true };
         for (var i = 0; i < viewActivity.length; i++) {
             var e = viewActivity[i];
+            if (e.missing === true)
+                continue;
+            week.missing = false;
             week.tokens += dayTokens(e);
             week.requests += e.requests + e.failed;
             if (e.date === todayDate) {
+                today.missing = false;
                 today.tokens = dayTokens(e);
                 today.requests = e.requests + e.failed;
             }
@@ -613,6 +642,11 @@ PluginComponent {
         icons["kimi"] = "chat";
         icons["xai"] = "rocket_launch";
         return icons[name] || "cloud";
+    }
+
+    function ago(iso) {
+        var age = formatAge(iso);
+        return age === "" || age === tr("just now") ? age : tr("%1 ago").replace("%1", age);
     }
 
     function formatAge(iso) {
@@ -677,7 +711,7 @@ PluginComponent {
             return tr("Loading…");
         if (forceFetch && quotaProcess.running)
             return tr("Refreshing…");
-        var age = formatAge(shown ? shown.updatedAt : "");
+        var age = ago(shown ? shown.updatedAt : "");
         if (quota.status !== "ok")
             return (quota.error || tr("no data")) + (lastGood && age ? " · " + tr("updated") + " " + age : "");
         if (quota.stale)
@@ -743,6 +777,10 @@ PluginComponent {
             spacing: Theme.spacingXS
             opacity: root.dataLive ? 1 : 0.6
 
+            ProviderMark {
+                anchors.verticalCenter: parent.verticalCenter
+            }
+
             QuotaRing {
                 width: root.iconSize
                 height: root.iconSize
@@ -751,13 +789,6 @@ PluginComponent {
                 anchors.verticalCenter: parent.verticalCenter
             }
 
-            DankIcon {
-                name: root.pillIcon
-                visible: root.remaining < 0
-                size: root.iconSize
-                color: Theme.surfaceVariantText
-                anchors.verticalCenter: parent.verticalCenter
-            }
 
             StyledText {
                 text: root.pillText("%")
@@ -782,6 +813,10 @@ PluginComponent {
             spacing: Theme.spacingXS
             opacity: root.dataLive ? 1 : 0.6
 
+            ProviderMark {
+                anchors.horizontalCenter: parent.horizontalCenter
+            }
+
             QuotaRing {
                 width: root.iconSize
                 height: root.iconSize
@@ -790,13 +825,6 @@ PluginComponent {
                 anchors.horizontalCenter: parent.horizontalCenter
             }
 
-            DankIcon {
-                name: root.pillIcon
-                visible: root.remaining < 0
-                size: root.iconSize
-                color: Theme.surfaceVariantText
-                anchors.horizontalCenter: parent.horizontalCenter
-            }
 
             StyledText {
                 text: root.pillText("")
@@ -1025,8 +1053,7 @@ PluginComponent {
 
                                     StyledText {
                                         readonly property bool known: typeof providerTab.modelData.aggregate === "number"
-                                        text: (known ? Math.round(providerTab.modelData.aggregate * 100) + "%" : "\u2014")
-                                              + (root.dataLive ? "" : "?")
+                                        text: known ? Math.round(providerTab.modelData.aggregate * 100) + "%" : "\u2014"
                                         font.pixelSize: Theme.fontSizeMedium
                                         font.weight: Font.Medium
                                         font.features: ({ tnum: 1 })
@@ -1288,6 +1315,14 @@ PluginComponent {
                                         }
 
                                         StyledText {
+                                            visible: accountCard.modelData.supported !== false && accountCard.modelData.status !== "active"
+                                                     && !accountCard.modelData.disabled && !accountCard.modelData.unavailable
+                                            text: accountCard.modelData.status
+                                            font.pixelSize: Theme.fontSizeSmall
+                                            color: Theme.error
+                                        }
+
+                                        StyledText {
                                             visible: accountCard.modelData.disabled
                                             text: root.tr("disabled")
                                             font.pixelSize: Theme.fontSizeSmall
@@ -1344,8 +1379,9 @@ PluginComponent {
                                         width: parent.width
                                         wrapMode: Text.WordWrap
                                         text: [
-                                            accountCard.modelData.status !== "active" ? accountCard.modelData.status : "",
-                                            accountCard.modelData.lastRequestAt ? root.tr("last request") + " " + root.formatAge(accountCard.modelData.lastRequestAt) : "",
+                                            accountCard.modelData.status !== "active" && (accountCard.modelData.disabled || accountCard.modelData.unavailable
+                                                || accountCard.modelData.supported === false) ? accountCard.modelData.status : "",
+                                            accountCard.modelData.lastRequestAt ? root.tr("last request") + " " + root.ago(accountCard.modelData.lastRequestAt) : "",
                                             root.formatCount(accountCard.modelData.success || 0) + " " + root.tr("ok"),
                                             root.formatCount(accountCard.modelData.failed || 0) + " " + root.tr("failed")
                                         ].filter(part => part !== "").join(" \u00b7 ")
@@ -1370,7 +1406,7 @@ PluginComponent {
                                     }
 
                                     Repeater {
-                                        model: accountCard.modelData.groups
+                                        model: accountCard.modelData.headline ? [] : accountCard.modelData.groups
 
                                         delegate: QuotaRow {
                                             required property var modelData
@@ -1499,13 +1535,15 @@ PluginComponent {
                                         required property var modelData
                                         width: activityContent.width
                                         name: modelData.label
-                                        value: (root.usageHasTokens ? root.formatTokens(modelData.tokens) + " " + root.tr("tokens") + " \u00b7 " : "")
-                                               + root.formatCount(modelData.requests) + " " + root.tr("requests")
+                                        value: modelData.missing ? root.tr("no data")
+                                               : (root.usageHasTokens ? root.formatTokens(modelData.tokens) + " " + root.tr("tokens") + " \u00b7 " : "")
+                                                 + root.formatCount(modelData.requests) + " " + root.tr("requests")
                                     }
                                 }
 
                                 Row {
                                     id: barsRow
+                                    visible: root.dayMax > 0
                                     width: parent.width
                                     topPadding: Theme.spacingXS
 

@@ -34,6 +34,7 @@ var strings = {
         es: "El servidor envía un formato de datos más reciente. Actualiza este widget."
     },
     "updated": { fr: "mis à jour", es: "actualizado" },
+    "%1 ago": { fr: "il y a %1", es: "hace %1" },
     "Refresh": { fr: "Actualiser", es: "Actualizar" },
     "resets in": { fr: "réinitialisation dans", es: "se reinicia en" },
     "resets soon": { fr: "réinitialisation imminente", es: "se reinicia pronto" },

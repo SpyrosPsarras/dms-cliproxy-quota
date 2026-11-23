@@ -39,25 +39,32 @@ Object.defineProperty(context, 'viewActivity', {get() {
     return block('viewActivity');
 }});
 assert.deepEqual(plain(block('usageStats')), [
-    {label: 'Today', tokens: 60, requests: 4},
-    {label: '7 days', tokens: 110, requests: 6},
+    {label: 'Today', tokens: 60, requests: 4, missing: false},
+    {label: '7 days', tokens: 110, requests: 6, missing: false},
 ], 'usage stats should count only the selected account');
 assert.deepEqual(plain(context.viewEntry(today)), {
-    date: todayDate, requests: 3, failed: 1, tokens: {small: 20, large: 40},
+    date: todayDate, requests: 3, failed: 1, tokens: {small: 20, large: 40}, missing: false,
 });
 assert.deepEqual(plain(context.viewEntry(older)), {
-    date: older.date, requests: 0, failed: 0, tokens: {},
-});
+    date: older.date, requests: 0, failed: 0, tokens: {}, missing: true,
+}, 'a day before the account split is missing for one account, not zero');
 context.selectedAccount = 'unknown';
 assert.deepEqual(plain(context.viewEntry(today)), {
-    date: todayDate, requests: 0, failed: 0, tokens: {},
+    date: todayDate, requests: 0, failed: 0, tokens: {}, missing: true,
 });
 context.selectedAccount = '';
 assert.equal(context.viewEntry(today), today);
 assert.deepEqual(plain(block('usageStats')), [
-    {label: 'Today', tokens: 200, requests: 11},
-    {label: '7 days', tokens: 330, requests: 18},
+    {label: 'Today', tokens: 200, requests: 11, missing: false},
+    {label: '7 days', tokens: 330, requests: 18, missing: false},
 ], 'All keeps the provider totals, including unattributed usage');
+const activityBefore = context.activity;
+context.activity = [yesterday, {date: todayDate, requests: 0, failed: 0, tokens: {}, missing: true}];
+assert.deepEqual(plain(block('usageStats')).map(({missing, requests}) => [missing, requests]), [[true, 0], [false, 5]],
+    'today without history is missing, not a measured zero');
+context.activity = [{date: todayDate, requests: 0, failed: 0, tokens: {}}];
+assert.deepEqual(plain(block('usageStats')).map(({missing}) => missing), [false, false], 'a measured zero stays zero');
+context.activity = activityBefore;
 
 runFunction('familyTokens');
 runFunction('familyViewTotal');
@@ -260,15 +267,16 @@ test('the bold quota row is the lowest group, only when there is a choice', () =
 
 test('the status line says what the numbers are', () => {
     Object.assign(context, {forceFetch: false, quotaProcess: {running: false}, formatAge: iso => iso ? '5m' : ''});
+    runFunction('ago');
     const status = (quota, lastGood = null) => {
         Object.assign(context, {quota, lastGood, shown: quota && quota.status === 'ok' ? quota : lastGood});
         return block('statusText');
     };
     const good = {status: 'ok', stale: false, updatedAt: 't'};
     assert.equal(status(null), 'Loading…');
-    assert.equal(status(good), 'updated 5m');
-    assert.equal(status({...good, stale: true}), 'stale · updated 5m');
-    assert.equal(status({status: 'unreachable', error: 'proxy unreachable'}, good), 'proxy unreachable · updated 5m');
+    assert.equal(status(good), 'updated 5m ago');
+    assert.equal(status({...good, stale: true}), 'stale · updated 5m ago');
+    assert.equal(status({status: 'unreachable', error: 'proxy unreachable'}, good), 'proxy unreachable · updated 5m ago');
     assert.equal(status({status: 'no-key', error: 'key unavailable'}), 'key unavailable');
     const shownBinding = source.match(/^    readonly property var shown: ([\s\S]*?)\n    [a-z]/m)[1];
     const shown = (quota, lastGood) => vm.runInContext(shownBinding, Object.assign(context, {quota, lastGood}));
