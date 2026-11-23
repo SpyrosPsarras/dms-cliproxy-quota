@@ -201,6 +201,15 @@ PluginComponent {
 
     property var quota: null
     property var lastGood: null
+    // Cached data survives a failure from the same proxy; a failure from another proxy, or with none, drops it.
+    function receive(result) {
+        if (result.status === "ok")
+            lastGood = result;
+        else if (result.status === "no-endpoint" || (result.source && lastGood?.source && result.source !== lastGood.source))
+            lastGood = null;
+        quota = result;
+    }
+
     // pluginData is replaced on every settings save; only a different source counts.
     readonly property string sourceKey: JSON.stringify(scriptEnvironment)
     property bool sourceChanged: false
@@ -286,7 +295,6 @@ PluginComponent {
         }
         return days;
     }
-    readonly property bool hasActivity: (pillProvider?.activity || []).length > 0
 
     // Fixed hues: stock themes have no tertiary, and account colours must not read as health.
     readonly property var accountPalette: ["#4dd0e1", "#ce93d8", "#fff59d", "#9fa8da"]
@@ -443,13 +451,6 @@ PluginComponent {
 
     function familyViewTotal(family) {
         return viewActivity.reduce((sum, entry) => sum + familyTokens(entry, family), 0);
-    }
-
-    function accountTokens(entry, authIndex, family) {
-        var account = entry.accounts?.[authIndex];
-        if (!account)
-            return 0;
-        return family ? familyTokens(account, family) : dayTokens(account);
     }
 
     function modelRows(tokens) {
@@ -740,9 +741,7 @@ PluginComponent {
                 if (line === "" || root.sourceChanged)
                     return;
                 try {
-                    root.quota = JSON.parse(line);
-                    if (root.quota.status === "ok")
-                        root.lastGood = root.quota;
+                    root.receive(JSON.parse(line));
                     root.receivedThisRun = true;
                 } catch (e) {
                 }
@@ -1514,7 +1513,7 @@ PluginComponent {
 
                         StyledRect {
                             id: activityCard
-                            visible: root.hasActivity
+                            visible: root.pillProvider !== null
                             width: accountsColumn.width - 2 * Theme.spacingM
                             anchors.horizontalCenter: parent.horizontalCenter
                             height: activityContent.height + 2 * Theme.spacingM

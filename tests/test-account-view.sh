@@ -108,11 +108,6 @@ context.activity = [older, {...today, accounts: {
 assert.equal(block('showAccountSplit'), false, 'old bridges report account requests but no account tokens');
 assert.equal(cardColor(), '', 'account cards use the legacy border when the bridge supplies no account tokens');
 
-runFunction('accountTokens');
-assert.equal(context.accountTokens(today, second, null), 60);
-assert.equal(context.accountTokens(today, second, {ids: ['small', 'absent']}), 20);
-assert.equal(context.accountTokens(older, second, null), 0);
-assert.equal(context.accountTokens(today, 'unknown', {ids: ['small']}), 0);
 
 Object.defineProperty(context, 'splitAccounts', {get: () => block('splitAccounts')});
 
@@ -299,6 +294,17 @@ test('the status line says what the numbers are', () => {
     assert.equal(shown({status: 'no-key', source: 'bbbb'}, cached), null, 'another source never shows the old cache');
     assert.equal(shown({status: 'script-error'}, cached), cached, 'an unknown source keeps the cache, dimmed');
     assert.equal(shown({status: 'unreachable', source: 'aaaa'}, {status: 'ok'}).status, 'ok', 'a cache from before source ids still counts');
+    runFunction('receive');
+    const receive = results => {
+        Object.assign(context, {quota: null, lastGood: null});
+        results.forEach(result => context.receive(result));
+        return vm.runInContext(shownBinding, context);
+    };
+    assert.equal(receive([cached, {status: 'unreachable', source: 'aaaa'}, {status: 'script-error'}]), cached,
+        'a timeout after a same-proxy failure keeps the cache');
+    assert.equal(receive([cached, {status: 'unreachable', source: 'bbbb'}, {status: 'script-error'}]), null,
+        'once another proxy answered, a later timeout cannot bring the old cache back');
+    assert.equal(receive([cached, {status: 'no-endpoint', source: ''}]), null, 'no endpoint, no cached proxy data');
     context.forceFetch = true;
     context.quotaProcess.running = true;
     assert.equal(status(good), 'Refreshing…');
