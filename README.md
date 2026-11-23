@@ -26,8 +26,8 @@ freedesktop Secret Service vault.
 
 ## What you get
 
-- **Taskbar pill** — a ring filled with what *remains* of the focused
-  provider's quota, with the number beside it (under it on a vertical bar):
+- **Taskbar pill** — the focused provider's logo and a ring filled with what
+  *remains* of its quota, with the number beside it (under it on a vertical bar):
   the worst group of the live account that took the newest request, so the
   ring tracks the account the proxy is using now. The pill follows the
   provider that took the newest request. Picking a provider by hand holds
