@@ -289,7 +289,8 @@ test('a model only seen in account counts still gets a Models row', () => {
 test('the seven day slots come from the date alone, so a clock tick does not rebuild them', () => {
     const activitySource = source.match(/^    readonly property var activity: \{([\s\S]*?)\n    \}/m)[1];
     assert.ok(!/nowMs/.test(activitySource), 'the day list must not read the clock');
-    assert.match(source, /model: root\.activity\.length\n/, 'a refresh updates the day slots in place instead of rebuilding them');
+    for (const list of ['activity', 'visibleProviders', 'otherAccounts', 'accountChipList', 'visibleFamilies'])
+        assert.match(source, new RegExp(`model: root\\.${list}\\.length\\n`), `a refresh updates the ${list} rows in place instead of rebuilding them`);
     const days = vm.runInContext(`(function() {${activitySource}})()`, Object.assign(vm.createContext({}), {
         todayDate: '2026-11-23', pillProvider: {activity: [{date: '2026-11-22', requests: 3, failed: 0, tokens: {}}]},
         Qt: {formatDate: d => [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-')}}));

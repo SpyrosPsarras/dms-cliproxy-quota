@@ -591,6 +591,9 @@ PluginComponent {
         expandedAccounts = next;
     }
 
+    readonly property var accountChipList: showAccountSplit ? [{ authIndex: "", label: tr("All accounts") }].concat(splitAccounts) : []
+
+    // The popout lists below use count models: a poll updates their rows in place, so keyboard focus survives it.
     readonly property var visibleFamilies: modelFamilies
         .map(family => Object.assign({}, family, { viewTotal: familyViewTotal(family) }))
         .filter(family => family.viewTotal > 0)
@@ -1042,12 +1045,12 @@ PluginComponent {
 
                     Repeater {
                         id: providerTabs
-                        model: root.visibleProviders
+                        model: root.visibleProviders.length
 
                         delegate: StyledRect {
                             id: providerTab
-                            required property var modelData
                             required property int index
+                            readonly property var modelData: root.visibleProviders[index] ?? ({ provider: "", aggregate: null, problem: false })
                             readonly property bool focused: index === root.focusedIndex
                             readonly property string iconSource: root.providerIconSource(modelData.provider)
 
@@ -1344,11 +1347,13 @@ PluginComponent {
                         }
 
                         Repeater {
-                            model: root.otherAccounts
+                            model: root.otherAccounts.length
 
                             delegate: StyledRect {
                                 id: accountCard
-                                required property var modelData
+                                required property int index
+                                readonly property var modelData: root.otherAccounts[index]
+                                    ?? ({ account: "", authIndex: "", status: "active", groups: [], error: "", noQuota: false })
 
                                 readonly property bool healthy: !modelData.disabled && !modelData.unavailable
                                                                 && (modelData.status === "active" || modelData.supported === false)
@@ -1548,11 +1553,12 @@ PluginComponent {
                             spacing: Theme.spacingS
 
                             Repeater {
-                                model: root.showAccountSplit ? [{ authIndex: "", label: root.tr("All accounts") }].concat(root.splitAccounts) : []
+                                model: root.accountChipList.length
 
                                 delegate: StyledRect {
                                     id: accountChip
-                                    required property var modelData
+                                    required property int index
+                                    readonly property var modelData: root.accountChipList[index] ?? ({ authIndex: "", label: "" })
                                     readonly property bool selected: modelData.authIndex === root.selectedAccount
                                     readonly property string chipLabel: modelData.label || modelData.account
                                     height: 32
@@ -1826,11 +1832,13 @@ PluginComponent {
                                 }
 
                                 Repeater {
-                                    model: root.visibleFamilies
+                                    model: root.visibleFamilies.length
 
                                     delegate: Column {
                                         id: familyRow
-                                        required property var modelData
+                                        required property int index
+                                        readonly property var modelData: root.visibleFamilies[index]
+                                            ?? ({ family: "", versions: [{ name: "", ids: [] }], viewTotal: 0, color: "transparent", ids: [] })
                                         readonly property bool multi: modelData.versions.length > 1
                                         readonly property bool expanded: multi && root.expandedFamilies[modelData.family] === true
                                         width: modelsContent.width
