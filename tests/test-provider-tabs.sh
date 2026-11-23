@@ -17,8 +17,10 @@ const detailFn = source.match(/^    function accountDetail\(account\) \{[\s\S]*?
 const detailCtx = {tr: k => k, ago: () => '2m ago', formatCount: n => String(n)};
 vm.runInNewContext(detailFn + '; this.accountDetail = accountDetail;', detailCtx);
 assert.equal(detailCtx.accountDetail({status: 'active', lastRequestAt: 't', success: 5, failed: 1}), 'last request 2m ago · 5 ok · 1 failed');
-assert.equal(detailCtx.accountDetail({status: 'error', headline: true, success: 0, failed: 0}), 'error · 0 ok · 0 failed',
-    'a non-active status shows on the quota card, which has no tag row');
+assert.equal(detailCtx.accountDetail({status: 'error', unavailable: true, success: 0, failed: 0}), 'error · 0 ok · 0 failed',
+    'a non-active status shows in the detail when another tag took the header');
+assert.match(source, /^    onInteractionActiveChanged: if \(!interactionActive\) followActiveProvider\(\)$/m,
+    'a provider switch skipped under an open popout happens when it closes');
 const expanded = source.match(/^\s+readonly property bool expanded: (root\.expandedAccounts.*)/m)[1];
 const card = (error, expandedAccounts = {}) => vm.runInNewContext(expanded, {root: {expandedAccounts}, expandKey: 'a1', modelData: {error}});
 assert.equal(card('provider API failed: 429'), true, 'an account with an error opens');

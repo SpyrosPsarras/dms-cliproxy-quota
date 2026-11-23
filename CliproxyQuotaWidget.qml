@@ -131,7 +131,7 @@ PluginComponent {
             visible: quotaRow.overPace >= 1 && quotaRow.fraction > 0
             text: quotaRow.overPace + "% " + root.tr("over pace")
             font.pixelSize: Theme.fontSizeSmall - 1
-            color: Theme.warning
+            color: root.liveColor(Theme.warning)
         }
     }
 
@@ -276,7 +276,7 @@ PluginComponent {
     readonly property var otherAccounts: (pillProvider?.accounts || []).filter(account => !account.headline)
     function accountDetail(account) {
         return [
-            account.status !== "active" && (account.disabled || account.unavailable || account.supported === false || account.headline)
+            account.status !== "active" && (account.disabled || account.unavailable || account.supported === false)
                 ? tr(account.status) : "",
             account.lastRequestAt && !account.headline ? tr("last request") + " " + ago(account.lastRequestAt) : "",
             formatCount(account.success || 0) + " " + tr("ok"),
@@ -646,6 +646,8 @@ PluginComponent {
     // The provider that took the newest request. A manual focus holds until
     // that changes; then the pill follows it.
     property string activeProvider: pluginData.activeProvider || ""
+    onInteractionActiveChanged: if (!interactionActive) followActiveProvider()
+
     function followActiveProvider() {
         if (interactionActive)
             return;
@@ -746,7 +748,7 @@ PluginComponent {
             return statusText;
         var state = remaining >= 0 ? Math.round(remaining * 100) + "% " + tr("remaining")
                   : pillProvider.problem === true ? tr("no account is serving") : tr("no quota reported");
-        return pillProvider.provider + ": " + state + (dataLive ? "" : " · " + statusText);
+        return pillProvider.provider + ": " + state + (dataLive ? "" : " · " + tr("stale"));
     }
 
     function tabTooltip(provider) {
@@ -951,7 +953,7 @@ PluginComponent {
                     var active = popoutRoot.Window.activeFocusItem;
                     if (active && active !== popoutRoot && active.rowHeader !== true)
                         return;
-                    var rows = root.focusKey.indexOf("account:") === 0 ? accountRows : familyRows;
+                    var rows = { account: accountRows, family: familyRows, tab: providerTabs, chip: chipRows }[root.focusKey.split(":")[0]];
                     for (var i = 0; i < rows.count; i++) {
                         var row = rows.itemAt(i);
                         if (row && row.focusKey === root.focusKey) {
@@ -969,6 +971,8 @@ PluginComponent {
                 target: root
                 function onOtherAccountsChanged() { popoutRoot.restoreFocus(); }
                 function onVisibleFamiliesChanged() { popoutRoot.restoreFocus(); }
+                function onVisibleProvidersChanged() { popoutRoot.restoreFocus(); }
+                function onAccountChipListChanged() { popoutRoot.restoreFocus(); }
             }
 
             function reveal(item) {
@@ -1097,7 +1101,10 @@ PluginComponent {
                             Keys.onSpacePressed: root.focusPage(index)
                             Keys.onReturnPressed: root.focusPage(index)
                             Keys.onEnterPressed: root.focusPage(index)
-                            onActiveFocusChanged: if (activeFocus) root.focusKey = ""
+                            readonly property string focusKey: "tab:" + modelData.provider
+                            readonly property Item focusTarget: providerTab
+                            readonly property bool rowHeader: true
+                            onActiveFocusChanged: if (activeFocus) root.focusKey = focusKey
 
                             Row {
                                 id: tabContent
@@ -1402,7 +1409,7 @@ PluginComponent {
                                 radius: Theme.cornerRadius
                                 color: Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
                                 border.width: healthy ? 0 : 1
-                                border.color: Theme.withAlpha(Theme.error, 0.5)
+                                border.color: Theme.withAlpha(root.liveColor(Theme.error), 0.5)
                                 clip: true
 
                                 Behavior on height {
@@ -1482,21 +1489,21 @@ PluginComponent {
                                                      && !accountCard.modelData.disabled && !accountCard.modelData.unavailable
                                             text: root.tr(accountCard.modelData.status)
                                             font.pixelSize: Theme.fontSizeSmall
-                                            color: Theme.error
+                                            color: root.liveColor(Theme.error)
                                         }
 
                                         StyledText {
                                             visible: accountCard.modelData.disabled
                                             text: root.tr("disabled")
                                             font.pixelSize: Theme.fontSizeSmall
-                                            color: Theme.error
+                                            color: root.liveColor(Theme.error)
                                         }
 
                                         StyledText {
                                             visible: accountCard.modelData.unavailable
                                             text: root.tr("unavailable")
                                             font.pixelSize: Theme.fontSizeSmall
-                                            color: Theme.warning
+                                            color: root.liveColor(Theme.warning)
                                         }
 
                                         StyledText {
@@ -1551,7 +1558,7 @@ PluginComponent {
                                         width: parent.width
                                         text: accountCard.modelData.error
                                         font.pixelSize: Theme.fontSizeSmall
-                                        color: accountCard.healthy ? Theme.surfaceVariantText : Theme.error
+                                        color: accountCard.healthy ? Theme.surfaceVariantText : root.liveColor(Theme.error)
                                         wrapMode: Text.WordWrap
                                     }
 
@@ -1593,11 +1600,15 @@ PluginComponent {
                             spacing: Theme.spacingS
 
                             Repeater {
+                                id: chipRows
                                 model: root.accountChipList.length
 
                                 delegate: StyledRect {
                                     id: accountChip
                                     required property int index
+                                    readonly property string focusKey: "chip:" + modelData.authIndex
+                                    readonly property Item focusTarget: accountChip
+                                    readonly property bool rowHeader: true
                                     readonly property var modelData: root.accountChipList[index] ?? ({ authIndex: "", label: "", account: "" })
                                     readonly property bool selected: modelData.authIndex === root.selectedAccount
                                     readonly property string chipLabel: modelData.label || modelData.account
@@ -1618,7 +1629,7 @@ PluginComponent {
                                     Keys.onEnterPressed: root.selectedAccount = modelData.authIndex
                                     onActiveFocusChanged: {
                                         if (activeFocus) {
-                                            root.focusKey = "";
+                                            root.focusKey = accountChip.focusKey;
                                             popoutRoot.reveal(accountChip);
                                         }
                                     }
@@ -1715,6 +1726,7 @@ PluginComponent {
                                     opacity: root.dataLive ? 1 : 0.5
 
                                     Repeater {
+                                        id: dayRepeater
                                         model: root.activity.length
 
                                         delegate: Column {
@@ -1761,7 +1773,7 @@ PluginComponent {
                                                 Rectangle {
                                                     anchors.fill: parent
                                                     radius: 4
-                                                    visible: dayOverlay.day === dayColumn
+                                                    visible: dayOverlay.day === dayColumn || dayPlot.activeFocus
                                                     color: Theme.withAlpha(Theme.surfaceText, 0.08)
                                                     border.width: dayPlot.activeFocus ? 2 : 0
                                                     border.color: Theme.primary
@@ -1996,8 +2008,14 @@ PluginComponent {
                 id: dayCloseTimer
                 interval: 250
                 onTriggered: {
-                    if (!dayOverlayHover.hovered && !(dayOverlay.day?.focusedDay ?? false))
-                        dayOverlay.day = null;
+                    if (dayOverlayHover.hovered)
+                        return;
+                    var focused = null;
+                    for (var i = 0; i < dayRepeater.count; i++) {
+                        if (dayRepeater.itemAt(i)?.focusedDay)
+                            focused = dayRepeater.itemAt(i);
+                    }
+                    dayOverlay.day = focused;
                 }
             }
 

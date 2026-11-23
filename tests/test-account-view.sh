@@ -319,7 +319,8 @@ test('keyboard focus follows the account or model family when a poll reorders ro
         const ctx = vm.createContext({root: {focusKey, focusedIndex: 0}, Qt: {callLater: f => f()},
             popoutRoot: {visible: true, Window: {activeFocusItem: active}},
             accountRows: {count: rows.length, itemAt: i => rows[i]}, familyRows: {count: 0, itemAt: () => null},
-            providerTabs: {itemAt: () => tab}});
+            chipRows: {count: rows.length, itemAt: i => rows[i]},
+            providerTabs: {count: rows.length, itemAt: i => focusKey.startsWith('tab:') ? rows[i] : tab}});
         vm.runInContext(fn + '; restoreFocus();', ctx);
         return [focused.item === 'tab' ? 'tab' : focused.item?.name ?? null, ctx.root.focusKey];
     };
@@ -328,6 +329,27 @@ test('keyboard focus follows the account or model family when a poll reorders ro
     assert.deepEqual(run('account:a', [b], b.focusTarget), ['tab', ''], 'a vanished account hands focus to the selected tab');
     assert.deepEqual(run('account:a', [b, a], {name: 'chip'}), [null, 'account:a'], 'focus elsewhere is left alone');
     assert.deepEqual(run('', [b, a], b.focusTarget), [null, ''], 'nothing to restore without a focused row');
+    const t1 = row('tab:claude', 'claude'), t2 = row('tab:codex', 'codex');
+    assert.deepEqual(run('tab:codex', [t2, t1], t1.focusTarget), ['codex', 'tab:codex'], 'a focused tab keeps focus when providers reorder');
+    const c1 = row('chip:a1', 'chipA'), c2 = row('chip:b2', 'chipB');
+    assert.deepEqual(run('chip:b2', [c2, c1], c1.focusTarget), ['chipB', 'chip:b2'], 'a focused chip keeps focus when chips reorder');
+});
+
+test('when hover ends, the day detail returns to the keyboard-focused day', () => {
+    const body = source.match(/id: dayCloseTimer[\s\S]*?onTriggered: \{([\s\S]*?)\n                \}/)[1];
+    const days = [{focusedDay: false}, {focusedDay: true}, {focusedDay: false}];
+    const ctx = vm.createContext({dayOverlayHover: {hovered: false}, dayOverlay: {day: days[2]},
+        dayRepeater: {count: 3, itemAt: i => days[i]}});
+    vm.runInContext(`(function() {${body}})()`, ctx);
+    assert.equal(ctx.dayOverlay.day, days[1]);
+    days[1].focusedDay = false;
+    ctx.dayOverlay.day = days[2];
+    vm.runInContext(`(function() {${body}})()`, ctx);
+    assert.equal(ctx.dayOverlay.day, null, 'no focused day, no detail');
+    ctx.dayOverlayHover.hovered = true;
+    ctx.dayOverlay.day = days[0];
+    vm.runInContext(`(function() {${body}})()`, ctx);
+    assert.equal(ctx.dayOverlay.day, days[0], 'the detail stays while the pointer is on it');
 });
 
 test('the bold quota row is the lowest group, only when there is a choice', () => {
