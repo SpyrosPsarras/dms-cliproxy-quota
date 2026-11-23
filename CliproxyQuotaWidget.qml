@@ -942,6 +942,7 @@ PluginComponent {
                 target: popoutRoot.parentPopout
                 function onOpened() {
                     root.selectedAccount = "";
+                    root.focusKey = "";
                     dayOverlay.day = null;
                     Qt.callLater(() => popoutRoot.forceActiveFocus());
                 }
