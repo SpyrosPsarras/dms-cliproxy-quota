@@ -299,6 +299,30 @@ test('the seven day slots come from the date alone, so a clock tick does not reb
     assert.equal(days[6].missing, true);
 });
 
+test('keyboard focus follows the account or model family when a poll reorders rows', () => {
+    const fn = source.match(/^            function restoreFocus\(\) \{[\s\S]*?\n            \}/m)[0];
+    const row = (key, name) => {
+        const target = {name, activeFocus: false, rowHeader: true, forceActiveFocus() { focused.item = target; }};
+        return {focusKey: key, focusTarget: target};
+    };
+    const focused = {item: null};
+    const tab = {forceActiveFocus() { focused.item = 'tab'; }};
+    const run = (focusKey, rows, active) => {
+        focused.item = null;
+        const ctx = vm.createContext({root: {focusKey, focusedIndex: 0}, Qt: {callLater: f => f()},
+            popoutRoot: {visible: true, Window: {activeFocusItem: active}},
+            accountRows: {count: rows.length, itemAt: i => rows[i]}, familyRows: {count: 0, itemAt: () => null},
+            providerTabs: {itemAt: () => tab}});
+        vm.runInContext(fn + '; restoreFocus();', ctx);
+        return [focused.item === 'tab' ? 'tab' : focused.item?.name ?? null, ctx.root.focusKey];
+    };
+    const a = row('account:a', 'A'), b = row('account:b', 'B');
+    assert.deepEqual(run('account:a', [b, a], b.focusTarget), ['A', 'account:a'], 'focus moves with the account to its new row');
+    assert.deepEqual(run('account:a', [b], b.focusTarget), ['tab', ''], 'a vanished account hands focus to the selected tab');
+    assert.deepEqual(run('account:a', [b, a], {name: 'chip'}), [null, 'account:a'], 'focus elsewhere is left alone');
+    assert.deepEqual(run('', [b, a], b.focusTarget), [null, ''], 'nothing to restore without a focused row');
+});
+
 test('the bold quota row is the lowest group, only when there is a choice', () => {
     const provider = context.pillProvider;
     const limiting = groups => { context.pillProvider = {aggregateGroups: groups}; return block('limitingGroup'); };

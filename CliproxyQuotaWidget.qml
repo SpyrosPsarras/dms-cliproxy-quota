@@ -585,6 +585,8 @@ PluginComponent {
     }
 
     property var expandedAccounts: ({})
+    // The account or model family whose row holds keyboard focus, so focus follows it when a poll reorders rows.
+    property string focusKey: ""
     function toggleAccount(key, expanded) {
         var next = Object.assign({}, expandedAccounts);
         next[key] = !expanded;
@@ -945,6 +947,33 @@ PluginComponent {
                 }
             }
 
+            function restoreFocus() {
+                if (root.focusKey === "" || !popoutRoot.visible)
+                    return;
+                Qt.callLater(() => {
+                    var active = popoutRoot.Window.activeFocusItem;
+                    if (active && active !== popoutRoot && active.rowHeader !== true)
+                        return;
+                    var rows = root.focusKey.indexOf("account:") === 0 ? accountRows : familyRows;
+                    for (var i = 0; i < rows.count; i++) {
+                        var row = rows.itemAt(i);
+                        if (row && row.focusKey === root.focusKey) {
+                            if (!row.focusTarget.activeFocus)
+                                row.focusTarget.forceActiveFocus();
+                            return;
+                        }
+                    }
+                    root.focusKey = "";
+                    providerTabs.itemAt(root.focusedIndex)?.forceActiveFocus();
+                });
+            }
+
+            Connections {
+                target: root
+                function onOtherAccountsChanged() { popoutRoot.restoreFocus(); }
+                function onVisibleFamiliesChanged() { popoutRoot.restoreFocus(); }
+            }
+
             function reveal(item) {
                 var top = item.mapToItem(accountsColumn, 0, 0).y;
                 activityScroll.contentY = Math.max(0, Math.min(top, Math.max(activityScroll.contentY, top + item.height - activityScroll.height)));
@@ -1067,6 +1096,7 @@ PluginComponent {
                             Keys.onSpacePressed: root.focusPage(index)
                             Keys.onReturnPressed: root.focusPage(index)
                             Keys.onEnterPressed: root.focusPage(index)
+                            onActiveFocusChanged: if (activeFocus) root.focusKey = ""
 
                             Row {
                                 id: tabContent
@@ -1347,11 +1377,14 @@ PluginComponent {
                         }
 
                         Repeater {
+                            id: accountRows
                             model: root.otherAccounts.length
 
                             delegate: StyledRect {
                                 id: accountCard
                                 required property int index
+                                readonly property string focusKey: "account:" + expandKey
+                                readonly property Item focusTarget: accountHeader
                                 readonly property var modelData: root.otherAccounts[index]
                                     ?? ({ account: "", authIndex: "", status: "active", groups: [], error: "", noQuota: false })
 
@@ -1380,6 +1413,7 @@ PluginComponent {
 
                                 Item {
                                     id: accountHeader
+                                    readonly property bool rowHeader: true
                                     width: parent.width
                                     height: 44
                                     activeFocusOnTab: true
@@ -1389,7 +1423,12 @@ PluginComponent {
                                     Keys.onSpacePressed: root.toggleAccount(accountCard.expandKey, accountCard.expanded)
                                     Keys.onReturnPressed: root.toggleAccount(accountCard.expandKey, accountCard.expanded)
                                     Keys.onEnterPressed: root.toggleAccount(accountCard.expandKey, accountCard.expanded)
-                                    onActiveFocusChanged: if (activeFocus) popoutRoot.reveal(accountHeader)
+                                    onActiveFocusChanged: {
+                                        if (activeFocus) {
+                                            popoutRoot.reveal(accountHeader);
+                                            root.focusKey = accountCard.focusKey;
+                                        }
+                                    }
 
                                     Rectangle {
                                         anchors.fill: parent
@@ -1558,7 +1597,7 @@ PluginComponent {
                                 delegate: StyledRect {
                                     id: accountChip
                                     required property int index
-                                    readonly property var modelData: root.accountChipList[index] ?? ({ authIndex: "", label: "" })
+                                    readonly property var modelData: root.accountChipList[index] ?? ({ authIndex: "", label: "", account: "" })
                                     readonly property bool selected: modelData.authIndex === root.selectedAccount
                                     readonly property string chipLabel: modelData.label || modelData.account
                                     height: 32
@@ -1576,6 +1615,7 @@ PluginComponent {
                                     Keys.onSpacePressed: root.selectedAccount = modelData.authIndex
                                     Keys.onReturnPressed: root.selectedAccount = modelData.authIndex
                                     Keys.onEnterPressed: root.selectedAccount = modelData.authIndex
+                                    onActiveFocusChanged: if (activeFocus) root.focusKey = ""
 
                                     Row {
                                         id: chipContent
@@ -1706,6 +1746,7 @@ PluginComponent {
                                                 }
                                                 onActiveFocusChanged: {
                                                     if (activeFocus) {
+                                                        root.focusKey = "";
                                                         popoutRoot.reveal(dayPlot);
                                                         dayOverlay.day = dayColumn;
                                                     } else if (dayOverlay.day === dayColumn)
@@ -1832,11 +1873,14 @@ PluginComponent {
                                 }
 
                                 Repeater {
+                                    id: familyRows
                                     model: root.visibleFamilies.length
 
                                     delegate: Column {
                                         id: familyRow
                                         required property int index
+                                        readonly property string focusKey: "family:" + modelData.family
+                                        readonly property Item focusTarget: familyHeader
                                         readonly property var modelData: root.visibleFamilies[index]
                                             ?? ({ family: "", versions: [{ name: "", ids: [] }], viewTotal: 0, color: "transparent", ids: [] })
                                         readonly property bool multi: modelData.versions.length > 1
@@ -1846,6 +1890,7 @@ PluginComponent {
 
                                         Item {
                                             id: familyHeader
+                                            readonly property bool rowHeader: true
                                             width: parent.width
                                             height: familyLine.height + 4
                                             activeFocusOnTab: familyRow.multi
@@ -1854,7 +1899,12 @@ PluginComponent {
                                             Keys.onSpacePressed: root.toggleFamily(familyRow.modelData.family)
                                             Keys.onReturnPressed: root.toggleFamily(familyRow.modelData.family)
                                             Keys.onEnterPressed: root.toggleFamily(familyRow.modelData.family)
-                                            onActiveFocusChanged: if (activeFocus) popoutRoot.reveal(familyHeader)
+                                            onActiveFocusChanged: {
+                                                if (activeFocus) {
+                                                    popoutRoot.reveal(familyHeader);
+                                                    root.focusKey = familyRow.focusKey;
+                                                }
+                                            }
 
                                             Rectangle {
                                                 anchors.fill: parent
