@@ -13,6 +13,8 @@ var strings = {
     "Models": { fr: "Modèles", es: "Modelos" },
     "Today": { fr: "Aujourd'hui", es: "Hoy" },
     "7 days": { fr: "7 jours", es: "7 días" },
+    "%1 of 7 days": { fr: "%1 jours sur 7", es: "%1 de 7 días" },
+    "error": { fr: "erreur", es: "error" },
     "tokens": { fr: "jetons", es: "tokens" },
     "requests": { fr: "requêtes", es: "solicitudes" },
     "ok": { fr: "réussies", es: "correctas" },

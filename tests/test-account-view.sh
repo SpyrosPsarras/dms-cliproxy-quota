@@ -40,8 +40,8 @@ Object.defineProperty(context, 'viewActivity', {get() {
 }});
 assert.deepEqual(plain(block('usageStats')), [
     {label: 'Today', tokens: 60, requests: 4, missing: false},
-    {label: '7 days', tokens: 110, requests: 6, missing: false},
-], 'usage stats should count only the selected account');
+    {label: '2 of 7 days', tokens: 110, requests: 6, missing: false},
+], 'usage stats should count only the selected account, over the days it has history');
 assert.deepEqual(plain(context.viewEntry(today)), {
     date: todayDate, requests: 3, failed: 1, tokens: {small: 20, large: 40}, missing: false,
 });
@@ -62,8 +62,10 @@ const activityBefore = context.activity;
 context.activity = [yesterday, {date: todayDate, requests: 0, failed: 0, tokens: {}, missing: true}];
 assert.deepEqual(plain(block('usageStats')).map(({missing, requests}) => [missing, requests]), [[true, 0], [false, 5]],
     'today without history is missing, not a measured zero');
+assert.equal(plain(block('usageStats'))[1].label, '%1 of 7 days'.replace('%1', 1), 'a partial week says how many days it covers');
 context.activity = [{date: todayDate, requests: 0, failed: 0, tokens: {}}];
 assert.deepEqual(plain(block('usageStats')).map(({missing}) => missing), [false, false], 'a measured zero stays zero');
+assert.equal(plain(block('usageStats'))[1].label, '7 days', 'a fully recorded week keeps its plain label');
 context.activity = activityBefore;
 
 runFunction('familyTokens');
@@ -80,7 +82,7 @@ assert.ok(palette, 'accountPalette binding is missing');
 context.accountPalette = vm.runInContext(palette[1], context);
 assert.deepEqual(plain(context.accountPalette), ['#4dd0e1', '#ce93d8', '#fff59d', '#9fa8da']);
 Object.defineProperty(context, 'accountColors', {get: () => block('accountColors')});
-Object.defineProperty(context, 'showAccountSplit', {get: () => block('showAccountSplit')});
+Object.defineProperty(context, 'showAccountSplit', {get: () => block('showAccountSplit'), configurable: true});
 runFunction('hasAccountTokens');
 runFunction('cardAccountColor');
 const cardColorBinding = source.match(/^                                readonly property var accountColor: (.+)$/m);
@@ -123,6 +125,18 @@ assert.equal(context.selectedAccount, second, 'keep a selection on refresh if th
 context.pillProvider = {accounts: [accounts[0]]};
 vm.runInContext(providerChanged[1], context);
 assert.equal(context.selectedAccount, '', 'reset the selection when the account disappears');
+
+const splitChanged = source.match(/^    onShowAccountSplitChanged: (.+)$/m);
+assert.ok(splitChanged, 'the account filter must clear when its chips disappear');
+Object.defineProperty(context, 'showAccountSplit', {value: false, configurable: true, writable: true});
+context.selectedAccount = second;
+vm.runInContext(splitChanged[1], context);
+assert.equal(context.selectedAccount, '', 'no hidden filter once the chips are gone');
+context.showAccountSplit = true;
+context.selectedAccount = second;
+vm.runInContext(splitChanged[1], context);
+assert.equal(context.selectedAccount, second, 'the filter stays while the chips show');
+Object.defineProperty(context, 'showAccountSplit', {get: () => block('showAccountSplit'), configurable: true});
 
 const focusChanged = source.match(/^    onFocusedProviderIdChanged: (.+)$/m);
 assert.ok(focusChanged, 'account selection must react to a provider change');

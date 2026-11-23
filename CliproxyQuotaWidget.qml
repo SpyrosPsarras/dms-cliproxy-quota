@@ -323,6 +323,7 @@ PluginComponent {
     property string selectedAccount: ""
     readonly property string focusedProviderId: pillProvider?.provider || ""
     onFocusedProviderIdChanged: selectedAccount = ""
+    onShowAccountSplitChanged: if (!showAccountSplit) selectedAccount = ""
     onPillProviderChanged: {
         if (selectedAccount && !pillProvider?.accounts?.some(account => account.authIndex === selectedAccount))
             selectedAccount = "";
@@ -513,6 +514,7 @@ PluginComponent {
         return Object.values(entry.accounts || {}).reduce((max, account) => Math.max(max, dayTokens(account)), dayTokens(entry));
     }
     readonly property real dayMax: activity.reduce((max, entry) => Math.max(max, dayValue(entry)), 0)
+    readonly property bool hasBars: dayMax > 0 && activity.some(entry => daySegments(entry).length > 0)
 
     // Bar segments, bottom first: by account when the split exists, otherwise by model family.
     function daySegments(entry) {
@@ -572,10 +574,12 @@ PluginComponent {
     readonly property var usageStats: {
         var today = { label: tr("Today"), tokens: 0, requests: 0, missing: true };
         var week = { label: tr("7 days"), tokens: 0, requests: 0, missing: true };
+        var recorded = 0;
         for (var i = 0; i < viewActivity.length; i++) {
             var e = viewActivity[i];
             if (e.missing === true)
                 continue;
+            recorded++;
             week.missing = false;
             week.tokens += dayTokens(e);
             week.requests += e.requests + e.failed;
@@ -585,6 +589,8 @@ PluginComponent {
                 today.requests = e.requests + e.failed;
             }
         }
+        if (recorded > 0 && recorded < viewActivity.length)
+            week.label = tr("%1 of 7 days").replace("%1", recorded);
         return [today, week];
     }
 
@@ -1317,7 +1323,7 @@ PluginComponent {
                                         StyledText {
                                             visible: accountCard.modelData.supported !== false && accountCard.modelData.status !== "active"
                                                      && !accountCard.modelData.disabled && !accountCard.modelData.unavailable
-                                            text: accountCard.modelData.status
+                                            text: root.tr(accountCard.modelData.status)
                                             font.pixelSize: Theme.fontSizeSmall
                                             color: Theme.error
                                         }
@@ -1380,7 +1386,7 @@ PluginComponent {
                                         wrapMode: Text.WordWrap
                                         text: [
                                             accountCard.modelData.status !== "active" && (accountCard.modelData.disabled || accountCard.modelData.unavailable
-                                                || accountCard.modelData.supported === false) ? accountCard.modelData.status : "",
+                                                || accountCard.modelData.supported === false) ? root.tr(accountCard.modelData.status) : "",
                                             accountCard.modelData.lastRequestAt ? root.tr("last request") + " " + root.ago(accountCard.modelData.lastRequestAt) : "",
                                             root.formatCount(accountCard.modelData.success || 0) + " " + root.tr("ok"),
                                             root.formatCount(accountCard.modelData.failed || 0) + " " + root.tr("failed")
@@ -1543,7 +1549,7 @@ PluginComponent {
 
                                 Row {
                                     id: barsRow
-                                    visible: root.dayMax > 0
+                                    visible: root.hasBars
                                     width: parent.width
                                     topPadding: Theme.spacingXS
 
