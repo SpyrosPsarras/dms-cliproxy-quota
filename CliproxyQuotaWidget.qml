@@ -1654,12 +1654,14 @@ PluginComponent {
                                     width: parent.width
                                     opacity: root.dataLive ? 1 : 0.5
 
+                                    // A count model keeps the seven slots (and their focus and open detail) across refreshes.
                                     Repeater {
-                                        model: root.activity
+                                        model: root.activity.length
 
                                         delegate: Column {
                                             id: dayColumn
-                                            required property var modelData
+                                            required property int index
+                                            readonly property var modelData: root.activity[index]
                                             readonly property var segments: root.daySegments(modelData)
                                             readonly property var bars: {
                                                 var shown = root.visibleSegments(segments);
