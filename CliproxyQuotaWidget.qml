@@ -941,10 +941,12 @@ PluginComponent {
             Connections {
                 target: popoutRoot.parentPopout
                 function onOpened() {
-                    root.selectedAccount = "";
                     root.focusKey = "";
+                    root.selectedAccount = "";
                     dayOverlay.day = null;
-                    Qt.callLater(() => popoutRoot.forceActiveFocus());
+                    activityScroll.contentY = 0;
+                    // A retained popout would hand focus back to its last focused row; start from a neutral item.
+                    Qt.callLater(() => openFocus.forceActiveFocus());
                 }
             }
 
@@ -997,6 +999,11 @@ PluginComponent {
 
             DankTooltipV2 {
                 id: popoutTip
+            }
+
+            Item {
+                id: openFocus
+                focus: true
             }
 
             Keys.onPressed: event => {

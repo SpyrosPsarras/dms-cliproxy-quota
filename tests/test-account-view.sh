@@ -152,12 +152,17 @@ assert.equal(context.selectedAccount, '', 'reset the selection when the provider
 
 const opened = source.match(/^                function onOpened\(\) \{([\s\S]*?)\n                \}/m);
 assert.ok(opened, 'account selection must react to opening the popout');
-context.Qt = {callLater: () => {}};
+let neutral = false;
+context.Qt = {callLater: f => f()};
+context.openFocus = {forceActiveFocus() { neutral = true; }};
+context.activityScroll = {contentY: 240};
 context.dayOverlay = {day: {modelData: today}};
 context.selectedAccount = second;
 context.focusKey = 'account:a';
 vm.runInContext(opened[1], context);
 assert.equal(context.focusKey, '', 'a reopened popout does not jump back to a row focused before it closed');
+assert.ok(neutral, 'a reopened popout starts focus on a neutral item, not the last focused row');
+assert.equal(context.activityScroll.contentY, 0, 'a reopened popout starts at the top');
 assert.equal(context.selectedAccount, '', 'reset the selection when the popout opens');
 assert.equal(context.dayOverlay.day, null, 'do not reopen with a stale day overlay');
 console.log('PASS: account colours, split availability, filtered usage and family totals, and account reset');
