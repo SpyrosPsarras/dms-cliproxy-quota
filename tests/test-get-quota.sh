@@ -289,6 +289,14 @@ if [ "$(wc -l < "$TMP/shim/calls.log")" = "1" ]; then
 else
     fail "cache miss: $(wc -l < "$TMP/shim/calls.log") HTTP calls"
 fi
+CACHE_OUT=$(find "$TMP/cache" -name 'output-*.json')
+jq -c '. + {origin: "legacy"} | del(.source)' "$CACHE_OUT" > "$CACHE_OUT.tmp" && mv "$CACHE_OUT.tmp" "$CACHE_OUT"
+HIT=$(run_script)
+if [ "$(jq -r '.source | length' <<<"$HIT")" = "16" ] && [ "$(jq -r 'has("origin")' <<<"$HIT")" = "false" ]; then
+    pass "a cache hit carries the proxy id and never an older origin field"
+else
+    fail "cache hit shape: $HIT"
+fi
 run_script --force >/dev/null
 if [ "$(wc -l < "$TMP/shim/calls.log")" = "2" ]; then
     pass "--force bypasses the local cache"
