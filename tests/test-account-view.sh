@@ -23,7 +23,7 @@ const context = vm.createContext({pillProvider: {accounts}, activity: [older, ye
     selectedAccount: second, todayDate, tr: key => key, Theme: {}});
 context.root = context;
 function block(name) {
-    const match = source.match(new RegExp(`^    readonly property (?:var|bool) ${name}: \\{([\\s\\S]*?)\\n    \\}`, 'm'));
+    const match = source.match(new RegExp(`^    readonly property (?:var|bool|string|int) ${name}: \\{([\\s\\S]*?)\\n    \\}`, 'm'));
     assert.ok(match, `${name} binding is missing`);
     return vm.runInContext(`(function() {${match[1]}})()`, context);
 }
@@ -105,29 +105,7 @@ assert.equal(context.accountTokens(today, second, {ids: ['small', 'absent']}), 2
 assert.equal(context.accountTokens(older, second, null), 0);
 assert.equal(context.accountTokens(today, 'unknown', {ids: ['small']}), 0);
 
-runFunction('clampedBoxes');
-runFunction('accountBoxes');
 Object.defineProperty(context, 'splitAccounts', {get: () => block('splitAccounts')});
-assert.deepEqual(plain(context.accountBoxes(200, [today], null)), [
-    {authIndex: second, value: 60}, {authIndex: first, value: 70},
-]);
-context.selectedAccount = second;
-assert.deepEqual(plain(context.accountBoxes(80, [yesterday, today], {ids: ['small']})), [
-    {authIndex: second, value: 70},
-]);
-context.selectedAccount = first;
-assert.deepEqual(plain(context.accountBoxes(80, [yesterday, today], {ids: ['small']})), [
-    {authIndex: first, value: 10},
-]);
-assert.deepEqual(plain(context.accountBoxes(30, [older], null)), []);
-context.selectedAccount = '';
-assert.deepEqual(plain(context.clampedBoxes(100, [{authIndex: 'a1', value: 70}, {authIndex: 'b2', value: 50}])), [
-    {authIndex: 'a1', value: 70}, {authIndex: 'b2', value: 30},
-]);
-assert.deepEqual(plain(context.clampedBoxes(100, [{authIndex: 'a1', value: 20}])), [{authIndex: 'a1', value: 20}]);
-assert.deepEqual(plain(context.clampedBoxes(100, [{authIndex: 'a1', value: -20}, {authIndex: 'b2', value: 120}])), [
-    {authIndex: 'a1', value: 0}, {authIndex: 'b2', value: 100},
-]);
 
 const providerChanged = source.match(/^    onPillProviderChanged: \{([\s\S]*?)\n    \}/m);
 assert.ok(providerChanged, 'account selection must react to an account refresh');
@@ -153,7 +131,7 @@ context.selectedAccount = second;
 vm.runInContext(opened[1], context);
 assert.equal(context.selectedAccount, '', 'reset the selection when the popout opens');
 assert.equal(context.dayOverlay.day, null, 'do not reopen with a stale day overlay');
-console.log('PASS: account colours, split availability, filtered usage and family totals, account reset and clamped boxes');
+console.log('PASS: account colours, split availability, filtered usage and family totals, and account reset');
 
 runFunction('parseModel');
 runFunction('modelRows');
@@ -199,15 +177,80 @@ test('a selected account shows only its own group and totals', () => {
     }
 });
 
-test('account sums above the day total leave no negative model in the rest', () => {
-    const detail = context.dayRows({...deployDay, accounts: {[first]: {tokens: {x: 699}}, [second]: {tokens: {z: 1}}}});
-    assert.deepEqual(groups(detail).map(([key, , , tokens]) => [key, tokens]), [[first, 699], [second, 1], ['other', 77]]);
+test('account counts above the provider count are capped, so bar, rows and total agree', () => {
+    const day = {...deployDay, accounts: {[first]: {tokens: {x: 699}}, [second]: {tokens: {z: 1}}}};
+    const detail = context.dayRows(day);
+    assert.deepEqual(groups(detail).map(([key, , , tokens]) => [key, tokens]), [[first, 500], [second, 1], ['other', 77]]);
+    assert.equal(detail.groups.reduce((sum, group) => sum + group.tokens, 0), detail.total);
+    context.usageHasTokens = true;
+    assert.deepEqual(plain(context.daySegments(day)).map(part => part.value), [500, 1, 77]);
 });
 
-test('a day without an account split is one unnamed group', () => {
+test('a selected account keeps its own counts even when the provider count is lower', () => {
+    const day = {date: todayDate, requests: 2, failed: 0, tokens: {x: 100}, accounts: {
+        [first]: {requests: 1, failed: 0, tokens: {x: 100}}, [second]: {requests: 1, failed: 0, tokens: {x: 5}}}};
+    context.selectedAccount = second;
+    try {
+        context.usageHasTokens = true;
+        assert.deepEqual(plain(context.daySegments(day)), [{value: 5, color: context.accountPalette[1]}]);
+        assert.deepEqual(groups(context.dayRows(day)).map(([key, , , tokens]) => [key, tokens]), [[second, 5]]);
+    } finally {
+        context.selectedAccount = '';
+    }
+});
+
+test('a day before the account split is all "other" while the split shows', () => {
     const detail = context.dayRows({...deployDay, accounts: undefined});
-    assert.deepEqual(groups(detail), [['day', '', '', 578, [['X', 500], ['Y', 70], ['Z', 8]]]]);
-    assert.deepEqual(plain(context.dayRows({date: todayDate, requests: 1, failed: 0, tokens: {}}).groups), []);
+    assert.deepEqual(groups(detail), [['other', 'other', '#other', 578, [['X', 500], ['Y', 70], ['Z', 8]]]]);
+});
+
+test('without an account split a day is one unnamed group', () => {
+    const accounts = context.pillProvider.accounts;
+    context.pillProvider = {accounts: [accounts[0]]};
+    try {
+        assert.deepEqual(groups(context.dayRows(deployDay)), [['day', '', '', 578, [['X', 500], ['Y', 70], ['Z', 8]]]]);
+        assert.deepEqual(plain(context.dayRows({date: todayDate, requests: 1, failed: 0, tokens: {}}).groups), []);
+    } finally {
+        context.pillProvider = {accounts};
+    }
+});
+
+test('bar heights stay proportional, keep tiny parts visible and fit the plot with gaps', () => {
+    runFunction('segmentHeights');
+    assert.deepEqual(plain(context.segmentHeights([], 100, 80, 1)), []);
+    assert.deepEqual(plain(context.segmentHeights([50], 100, 80, 1)), [40]);
+    const tall = context.segmentHeights([99, 1], 100, 80, 1);
+    assert.ok(tall[1] >= 2, 'a 1% part stays visible');
+    assert.ok(Math.abs(tall[0] + tall[1] + 1 - 80) < 1e-9, 'parts and the gap fill the plot exactly');
+    const many = context.segmentHeights([90, 4, 3, 3], 100, 80, 1);
+    assert.ok(many.every(h => h >= 2) && many.reduce((a, b) => a + b, 0) + 3 <= 80 + 1e-9);
+});
+
+test('the bold quota row is the lowest group, only when there is a choice', () => {
+    const provider = context.pillProvider;
+    const limiting = groups => { context.pillProvider = {aggregateGroups: groups}; return block('limitingGroup'); };
+    assert.equal(limiting([{remainingFraction: 0.82}, {remainingFraction: 0.69}, {remainingFraction: 0.97}]), 1);
+    assert.equal(limiting([{remainingFraction: 0.5}, {remainingFraction: 0.5}]), 0);
+    assert.equal(limiting([{remainingFraction: 0.4}]), -1);
+    assert.equal(limiting([]), -1);
+    context.pillProvider = provider;
+});
+
+test('the status line says what the numbers are', () => {
+    Object.assign(context, {forceFetch: false, quotaProcess: {running: false}, formatAge: iso => iso ? '5m' : ''});
+    const status = (quota, lastGood = null) => {
+        Object.assign(context, {quota, lastGood, shown: quota && quota.status === 'ok' ? quota : lastGood});
+        return block('statusText');
+    };
+    const good = {status: 'ok', stale: false, updatedAt: 't'};
+    assert.equal(status(null), 'Loading…');
+    assert.equal(status(good), 'updated 5m');
+    assert.equal(status({...good, stale: true}), 'stale · updated 5m');
+    assert.equal(status({status: 'unreachable', error: 'proxy unreachable'}, good), 'proxy unreachable · updated 5m');
+    assert.equal(status({status: 'no-key', error: 'key unavailable'}), 'key unavailable');
+    context.forceFetch = true;
+    context.quotaProcess.running = true;
+    assert.equal(status(good), 'Refreshing…');
 });
 
 test('bars are split by account when possible, otherwise by model family', () => {

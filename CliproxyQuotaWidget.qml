@@ -104,7 +104,7 @@ PluginComponent {
         }
 
         StyledText {
-            visible: quotaRow.overPace >= 1
+            visible: quotaRow.overPace >= 1 && quotaRow.fraction > 0
             text: quotaRow.overPace + "% " + root.tr("over pace")
             font.pixelSize: Theme.fontSizeSmall - 1
             color: Theme.warning
@@ -177,6 +177,11 @@ PluginComponent {
 
     property var quota: null
     property var lastGood: null
+    onScriptEnvironmentChanged: {
+        lastGood = null;
+        if (!quotaProcess.running)
+            quotaProcess.running = true;
+    }
     readonly property var shown: quota && quota.status === "ok" ? quota : lastGood
 
     function parseList(raw) {
@@ -245,7 +250,7 @@ PluginComponent {
             day.setHours(12, 0, 0, 0);
             day.setDate(day.getDate() - i);
             var key = Qt.formatDate(day, "yyyy-MM-dd");
-            days.push(byDate[key] || { date: key, requests: 0, failed: 0, tokens: {} });
+            days.push(byDate[key] || { date: key, requests: 0, failed: 0, tokens: {}, missing: true });
         }
         return days;
     }
@@ -404,23 +409,6 @@ PluginComponent {
         return family ? familyTokens(account, family) : dayTokens(account);
     }
 
-    function clampedBoxes(total, parts) {
-        var left = Math.max(0, total);
-        return parts.map(part => {
-            var value = Math.max(0, Math.min(left, part.value));
-            left -= value;
-            return { authIndex: part.authIndex, value: value };
-        });
-    }
-
-    function accountBoxes(total, entries, family) {
-        var parts = splitAccounts.map(account => ({
-            authIndex: account.authIndex,
-            value: entries.reduce((sum, entry) => sum + accountTokens(entry, account.authIndex, family), 0)
-        }));
-        return clampedBoxes(total, parts).filter(part => part.value > 0 && (!selectedAccount || part.authIndex === selectedAccount));
-    }
-
     function modelRows(tokens) {
         var byName = {};
         var rows = [];
@@ -440,29 +428,39 @@ PluginComponent {
     }
 
     // One day as a table: a group per account (or one unnamed group), each with its models.
+    // With all accounts shown, each model's account counts are capped at the provider count,
+    // so the groups add up to the day total and the unattributed rest is "other".
     function dayRows(allEntry) {
         var entry = viewEntry(allEntry);
-        var detail = { date: entry.date, total: dayTokens(entry), requests: entry.requests + entry.failed, failed: entry.failed, groups: [] };
-        if (!showAccountSplit || !hasAccountTokens(allEntry)) {
-            if (detail.total > 0)
-                detail.groups.push({ key: "day", name: "", color: "", tokens: detail.total, models: modelRows(entry.tokens) });
+        var detail = { date: entry.date, total: dayTokens(entry), requests: entry.requests + entry.failed,
+                       failed: entry.failed, missing: allEntry.missing === true, groups: [] };
+        function add(key, name, color, tokens) {
+            var models = modelRows(tokens);
+            var total = models.reduce((sum, row) => sum + row.tokens, 0);
+            if (total > 0)
+                detail.groups.push({ key: key, name: name, color: color, tokens: total, models: models });
+        }
+        if (!showAccountSplit) {
+            add("day", "", "", entry.tokens);
+            return detail;
+        }
+        if (selectedAccount) {
+            var selected = splitAccounts.find(account => account.authIndex === selectedAccount);
+            if (selected)
+                add(selected.authIndex, selected.label || selected.account, accountColors[selected.authIndex], entry.tokens);
             return detail;
         }
         var rest = Object.assign({}, allEntry.tokens || {});
         splitAccounts.forEach(account => {
-            var key = account.authIndex;
-            var tokens = allEntry.accounts?.[key]?.tokens || {};
-            Object.keys(tokens).forEach(id => rest[id] = (rest[id] || 0) - tokens[id]);
-            var total = accountTokens(allEntry, key, null);
-            if (total > 0 && (!selectedAccount || key === selectedAccount))
-                detail.groups.push({ key: key, name: account.label || account.account, color: accountColors[key], tokens: total, models: modelRows(tokens) });
+            var own = allEntry.accounts?.[account.authIndex]?.tokens || {};
+            var capped = {};
+            Object.keys(own).forEach(id => {
+                capped[id] = Math.max(0, Math.min(own[id], rest[id] || 0));
+                rest[id] = (rest[id] || 0) - capped[id];
+            });
+            add(account.authIndex, account.label || account.account, accountColors[account.authIndex], capped);
         });
-        if (!selectedAccount) {
-            var other = modelRows(rest);
-            var otherTotal = other.reduce((sum, row) => sum + row.tokens, 0);
-            if (otherTotal > 0)
-                detail.groups.push({ key: "other", name: tr("other"), color: otherColor, tokens: otherTotal, models: other });
-        }
+        add("other", tr("other"), otherColor, rest);
         return detail;
     }
 
@@ -478,17 +476,22 @@ PluginComponent {
             var view = viewEntry(entry);
             return view.requests + view.failed > 0 ? [{ value: view.requests + view.failed, color: Theme.primary }] : [];
         }
-        if (showAccountSplit) {
-            var parts = accountBoxes(dayTokens(entry), [entry], null)
-                .map(part => ({ value: part.value, color: accountColors[part.authIndex] }));
-            var other = dayTokens(entry) - parts.reduce((sum, part) => sum + part.value, 0);
-            if (!selectedAccount && other > 0)
-                parts.push({ value: other, color: otherColor });
-            return parts;
-        }
+        if (showAccountSplit)
+            return dayRows(entry).groups.map(group => ({ value: group.tokens, color: group.color }));
         var filtered = viewEntry(entry);
         return modelFamilies.map(family => ({ value: familyTokens(filtered, family), color: family.color }))
             .filter(part => part.value > 0);
+    }
+
+    // Bar heights in pixels: proportional, at least 2 px each, and with the gaps never above the plot.
+    function segmentHeights(values, max, plot, gap) {
+        if (values.length === 0 || max <= 0)
+            return [];
+        var room = plot - gap * (values.length - 1);
+        var heights = values.map(value => Math.max(2, room * value / max));
+        var over = heights.reduce((sum, h) => sum + h, 0) - room;
+        var shrinkable = heights.reduce((sum, h) => sum + h - 2, 0);
+        return over > 0 && shrinkable > 0 ? heights.map(h => h - (h - 2) * Math.min(1, over / shrinkable)) : heights;
     }
 
     function dayOverlayPosition(left, right, rowBottom, width, height, boundsWidth, boundsHeight, gap, inset) {
@@ -508,9 +511,9 @@ PluginComponent {
     }
 
     property var expandedAccounts: ({})
-    function toggleAccount(authIndex, expanded) {
+    function toggleAccount(key, expanded) {
         var next = Object.assign({}, expandedAccounts);
-        next[authIndex] = !expanded;
+        next[key] = !expanded;
         expandedAccounts = next;
     }
 
@@ -641,7 +644,7 @@ PluginComponent {
         if (quota === null)
             return "…";
         var mark = dataLive ? "" : "?";
-        return remaining < 0 ? mark : Math.round(remaining * 100) + sign + mark;
+        return remaining < 0 ? (pillProvider ? "\u2014" : "") + mark : Math.round(remaining * 100) + sign + mark;
     }
 
     readonly property string pillIcon: quota === null ? "hourglass_empty"
@@ -654,11 +657,12 @@ PluginComponent {
             return tr("Refreshing…");
         var age = formatAge(shown ? shown.updatedAt : "");
         if (quota.status !== "ok")
-            return (quota.error || tr("no data")) + (lastGood && age ? " · " + tr("data from") + " " + age : "");
+            return (quota.error || tr("no data")) + (lastGood && age ? " · " + tr("updated") + " " + age : "");
         if (quota.stale)
             return tr("stale") + (age ? " · " + tr("updated") + " " + age : "");
         return age ? tr("updated") + " " + age : "";
     }
+    readonly property bool needsSettings: quota !== null && (quota.status === "no-key" || quota.status === "no-endpoint")
     readonly property color statusColor: quota && quota.status !== "ok" ? Theme.error
         : quota && quota.stale ? Theme.warning : Theme.surfaceVariantText
 
@@ -805,8 +809,8 @@ PluginComponent {
                 target: root
                 property: "popoutHeight"
                 value: Math.round(Math.min(root.basePopoutHeight * 1.5,
-                                           Math.max(root.focusedIndex >= 0 ? root.basePopoutHeight : popoutRoot.headerHeight + 140,
-                                                    popoutRoot.headerHeight + accountsColumn.height + Theme.spacingS)))
+                                           Math.max(root.focusedIndex >= 0 ? root.basePopoutHeight : 0,
+                                                    popoutRoot.headerHeight + accountsColumn.height + Theme.spacingL)))
             }
             Connections {
                 target: popoutRoot.parentPopout
@@ -842,15 +846,19 @@ PluginComponent {
 
                 Item {
                     width: parent.width
-                    height: 40
+                    height: Math.max(40, statusLine.implicitHeight + Theme.spacingS)
 
                     StyledText {
+                        id: statusLine
                         anchors.left: parent.left
                         anchors.leftMargin: Theme.spacingM
                         anchors.right: headerActions.left
                         anchors.rightMargin: Theme.spacingS
                         anchors.verticalCenter: parent.verticalCenter
+                        visible: root.focusedIndex >= 0
                         text: root.statusText
+                        wrapMode: Text.WordWrap
+                        maximumLineCount: 2
                         elide: Text.ElideRight
                         font.pixelSize: Theme.fontSizeSmall
                         color: root.statusColor
@@ -1028,6 +1036,16 @@ PluginComponent {
                 StyledText {
                     anchors.horizontalCenter: parent.horizontalCenter
                     width: parent.width - 2 * Theme.spacingM
+                    visible: root.focusedIndex >= 0 && root.needsSettings
+                    text: root.tr("Check the plugin settings or unlock your vault.")
+                    wrapMode: Text.WordWrap
+                    font.pixelSize: Theme.fontSizeSmall
+                    color: Theme.surfaceVariantText
+                }
+
+                StyledText {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: parent.width - 2 * Theme.spacingM
                     visible: root.drift
                     text: root.tr("The server sends a newer data format. Update this widget.")
                     wrapMode: Text.WordWrap
@@ -1038,10 +1056,10 @@ PluginComponent {
                 DankFlickable {
                     id: activityScroll
                     width: parent.width
-                    height: Math.max(140, root.popoutHeight - popoutRoot.headerHeight)
+                    height: Math.max(0, root.popoutHeight - popoutRoot.headerHeight)
                     contentHeight: accountsColumn.height
                     clip: true
-                    opacity: root.dataLive ? 1 : 0.6
+                    opacity: root.dataLive || root.focusedIndex < 0 ? 1 : 0.6
 
                     Column {
                         id: accountsColumn
@@ -1066,7 +1084,7 @@ PluginComponent {
 
                             StyledText {
                                 width: parent.width
-                                visible: root.quota !== null && (root.quota.status === "no-key" || root.quota.status === "no-endpoint")
+                                visible: root.needsSettings
                                 text: root.tr("Check the plugin settings or unlock your vault.")
                                 horizontalAlignment: Text.AlignHCenter
                                 wrapMode: Text.WordWrap
@@ -1099,7 +1117,7 @@ PluginComponent {
 
                                 StyledText {
                                     visible: root.pillProvider !== null && (root.pillProvider.aggregateGroups || []).length === 0
-                                    text: root.pillProvider && root.pillProvider.accounts.some(account => !account.noQuota)
+                                    text: root.pillProvider && root.pillProvider.problem === true
                                           ? root.tr("no account is serving") : root.tr("no quota reported")
                                     font.pixelSize: Theme.fontSizeSmall
                                     color: Theme.surfaceVariantText
@@ -1139,7 +1157,8 @@ PluginComponent {
                                 readonly property bool healthy: !modelData.disabled && !modelData.unavailable
                                                                 && (modelData.status === "active" || modelData.supported === false)
                                 readonly property var accountColor: root.cardAccountColor(modelData.authIndex)
-                                readonly property bool expanded: root.expandedAccounts[modelData.authIndex] ?? !!modelData.error
+                                readonly property string expandKey: modelData.authIndex || modelData.account
+                                readonly property bool expanded: root.expandedAccounts[expandKey] ?? !!modelData.error
                                 readonly property real worst: modelData.groups.reduce((min, group) => Math.min(min, group.remainingFraction), 2)
 
                                 width: accountsColumn.width - 2 * Theme.spacingM
@@ -1166,7 +1185,7 @@ PluginComponent {
                                     MouseArea {
                                         anchors.fill: parent
                                         cursorShape: Qt.PointingHandCursor
-                                        onClicked: root.toggleAccount(accountCard.modelData.authIndex, accountCard.expanded)
+                                        onClicked: root.toggleAccount(accountCard.expandKey, accountCard.expanded)
                                     }
 
                                     Rectangle {
@@ -1448,6 +1467,10 @@ PluginComponent {
                                             id: dayColumn
                                             required property var modelData
                                             readonly property var segments: root.daySegments(modelData)
+                                            readonly property var bars: {
+                                                var heights = root.segmentHeights(segments.map(part => part.value), root.dayMax, 80, 1);
+                                                return segments.map((part, i) => ({ color: part.color, h: heights[i] })).reverse();
+                                            }
                                             readonly property bool isToday: modelData.date === root.todayDate
                                             readonly property real barWidth: Math.min(28, width - Theme.spacingS)
                                             width: barsRow.width / root.activity.length
@@ -1473,24 +1496,19 @@ PluginComponent {
                                                     color: Theme.surfaceVariant
                                                 }
 
-                                                Item {
-                                                    anchors.fill: parent
-                                                    clip: true
+                                                Column {
+                                                    anchors.bottom: parent.bottom
+                                                    anchors.horizontalCenter: parent.horizontalCenter
+                                                    spacing: 1
 
-                                                    Column {
-                                                        anchors.bottom: parent.bottom
-                                                        anchors.horizontalCenter: parent.horizontalCenter
-                                                        spacing: 1
+                                                    Repeater {
+                                                        model: dayColumn.bars
 
-                                                        Repeater {
-                                                            model: root.dayMax > 0 ? dayColumn.segments.slice().reverse() : []
-
-                                                            delegate: Rectangle {
-                                                                required property var modelData
-                                                                width: dayColumn.barWidth
-                                                                height: Math.max(2, 80 * modelData.value / root.dayMax)
-                                                                color: modelData.color
-                                                            }
+                                                        delegate: Rectangle {
+                                                            required property var modelData
+                                                            width: dayColumn.barWidth
+                                                            height: modelData.h
+                                                            color: modelData.color
                                                         }
                                                     }
                                                 }
@@ -1563,7 +1581,7 @@ PluginComponent {
                                             DetailLine {
                                                 id: familyLine
                                                 anchors.left: parent.left
-                                                anchors.right: familyRow.multi ? familyChevron.left : parent.right
+                                                anchors.right: familyChevron.left
                                                 name: familyRow.multi ? familyRow.modelData.family : familyRow.modelData.versions[0].name
                                                 value: root.formatTokens(familyRow.modelData.viewTotal)
                                                 strong: true
@@ -1573,7 +1591,7 @@ PluginComponent {
                                                 id: familyChevron
                                                 anchors.right: parent.right
                                                 anchors.verticalCenter: parent.verticalCenter
-                                                visible: familyRow.multi
+                                                opacity: familyRow.multi ? 1 : 0
                                                 name: familyRow.expanded ? "expand_less" : "expand_more"
                                                 size: 16
                                                 color: Theme.surfaceVariantText
@@ -1610,14 +1628,17 @@ PluginComponent {
 
                                             Repeater {
                                                 model: familyRow.expanded
-                                                       ? familyRow.modelData.versions.filter(version => root.familyViewTotal(version) > 0) : []
+                                                       ? familyRow.modelData.versions
+                                                             .map(version => ({ name: version.name, total: root.familyViewTotal(version) }))
+                                                             .filter(version => version.total > 0)
+                                                             .sort((a, b) => b.total - a.total) : []
 
                                                 delegate: DetailLine {
                                                     required property var modelData
-                                                    width: modelsContent.width
+                                                    width: modelsContent.width - familyChevron.width
                                                     indent: Theme.spacingM
                                                     name: modelData.name
-                                                    value: root.formatTokens(root.familyViewTotal(modelData))
+                                                    value: root.formatTokens(modelData.total)
                                                 }
                                             }
                                         }
@@ -1722,7 +1743,8 @@ PluginComponent {
 
                     StyledText {
                         topPadding: Theme.spacingXS
-                        text: dayOverlay.detail ? root.formatCount(dayOverlay.detail.requests) + " " + root.tr("requests")
+                        text: dayOverlay.detail?.missing ? root.tr("no data")
+                              : dayOverlay.detail ? root.formatCount(dayOverlay.detail.requests) + " " + root.tr("requests")
                               + (dayOverlay.detail.failed > 0 ? " \u00b7 " + root.formatCount(dayOverlay.detail.failed) + " " + root.tr("failed") : "") : ""
                         font.pixelSize: Theme.fontSizeSmall
                         color: Theme.surfaceVariantText

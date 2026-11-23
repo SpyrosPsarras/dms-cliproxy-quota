@@ -25,7 +25,6 @@ var strings = {
     "Loading…": { fr: "Chargement…", es: "Cargando…" },
     "Refreshing…": { fr: "Actualisation…", es: "Actualizando…" },
     "stale": { fr: "périmé", es: "desactualizado" },
-    "data from": { fr: "données d'il y a", es: "datos de hace" },
     "Check the plugin settings or unlock your vault.": {
         fr: "Vérifiez les réglages du plugin ou déverrouillez votre coffre.",
         es: "Revisa los ajustes del plugin o desbloquea tu bóveda."

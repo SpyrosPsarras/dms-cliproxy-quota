@@ -20,7 +20,7 @@ context.contentWidth = 388;
 vm.runInNewContext(body, context);
 assert.equal(context.contentX, 0);
 const expanded = source.match(/^\s+readonly property bool expanded: (root\.expandedAccounts.*)/m)[1];
-const card = (error, expandedAccounts = {}) => vm.runInNewContext(expanded, {root: {expandedAccounts}, modelData: {authIndex: 'a1', error}});
+const card = (error, expandedAccounts = {}) => vm.runInNewContext(expanded, {root: {expandedAccounts}, expandKey: 'a1', modelData: {error}});
 assert.equal(card('provider API failed: 429'), true, 'an account with an error opens');
 assert.equal(card(''), false, 'a quiet account stays one line');
 assert.equal(card('', {a1: true}), true, 'a manual expand survives the refresh');
