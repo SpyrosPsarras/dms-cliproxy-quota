@@ -1655,7 +1655,7 @@ PluginComponent {
                                 spacing: Theme.spacingS
 
                                 StyledText {
-                                    text: root.tr("Models") + " \u00b7 " + root.tr("7 days")
+                                    text: root.tr("Models") + " \u00b7 " + root.usageStats[1].label
                                     font.pixelSize: Theme.fontSizeMedium
                                     font.weight: Font.Medium
                                     color: Theme.surfaceText
