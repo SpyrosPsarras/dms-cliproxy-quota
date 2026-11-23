@@ -949,12 +949,12 @@ PluginComponent {
 
             Connections {
                 target: root
-                function onFocusedIndexChanged() {
+                function onFocusedProviderIdChanged() {
                     activityScroll.contentY = 0;
                     dayOverlay.day = null;
-                    // Focus inside the old page would sit off screen; hand it to the new tab.
+                    // Focus in the old page or on the old tab moves to the new tab.
                     for (var item = popoutRoot.Window.activeFocusItem; item; item = item.parent) {
-                        if (item === accountsColumn) {
+                        if (item === accountsColumn || item === navTabs) {
                             Qt.callLater(() => providerTabs.itemAt(root.focusedIndex)?.forceActiveFocus());
                             break;
                         }
