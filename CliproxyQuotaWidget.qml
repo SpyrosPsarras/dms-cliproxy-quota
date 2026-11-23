@@ -952,6 +952,13 @@ PluginComponent {
                 function onFocusedIndexChanged() {
                     activityScroll.contentY = 0;
                     dayOverlay.day = null;
+                    // Focus inside the old page would sit off screen; hand it to the new tab.
+                    for (var item = popoutRoot.Window.activeFocusItem; item; item = item.parent) {
+                        if (item === accountsColumn) {
+                            Qt.callLater(() => providerTabs.itemAt(root.focusedIndex)?.forceActiveFocus());
+                            break;
+                        }
+                    }
                 }
             }
 
@@ -1034,6 +1041,7 @@ PluginComponent {
                     opacity: root.dataLive ? 1 : 0.6
 
                     Repeater {
+                        id: providerTabs
                         model: root.visibleProviders
 
                         delegate: StyledRect {
