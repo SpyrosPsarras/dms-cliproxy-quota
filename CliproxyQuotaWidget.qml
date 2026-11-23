@@ -1565,6 +1565,7 @@ PluginComponent {
                                                 return segments.map((part, i) => ({ color: part.color, h: heights[i] })).reverse();
                                             }
                                             readonly property bool isToday: modelData.date === root.todayDate
+                                            readonly property bool missing: root.viewEntry(modelData).missing === true
                                             readonly property real barWidth: Math.min(28, width - Theme.spacingS)
                                             width: barsRow.width / root.activity.length
                                             spacing: 4
@@ -1581,7 +1582,7 @@ PluginComponent {
                                                 }
 
                                                 Rectangle {
-                                                    visible: dayColumn.segments.length === 0
+                                                    visible: dayColumn.segments.length === 0 && !dayColumn.missing
                                                     anchors.bottom: parent.bottom
                                                     anchors.horizontalCenter: parent.horizontalCenter
                                                     width: dayColumn.barWidth
