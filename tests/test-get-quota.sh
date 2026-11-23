@@ -494,6 +494,12 @@ if [ "$(jq -r '.stale' <<<"$OUT")" = "true" ] && [ "$(jq -r '.providers | length
 else
     fail "unreachable shape wrong: $OUT"
 fi
+if [ "$(jq -r '.origin' <<<"$OUT")" = "https://proxy.test" ] \
+   && [ "$(jq -r '.origin' <<<"$(SHIM_FAIL= run_script --force)")" = "https://proxy.test" ]; then
+    pass "failures and successes name the origin they came from, never the key"
+else
+    fail "unreachable shape wrong: $OUT"
+fi
 
 echo "=== Test 10: server-side stale cache is reported stale ==="
 setup

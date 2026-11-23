@@ -181,15 +181,16 @@ PluginComponent {
     readonly property string sourceKey: JSON.stringify(scriptEnvironment)
     property bool sourceChanged: false
     onSourceKeyChanged: {
+        forceFetch = quota !== null || quotaProcess.running;
         quota = null;
         lastGood = null;
-        forceFetch = true;
         if (quotaProcess.running)
             sourceChanged = true;
         else
             quotaProcess.running = true;
     }
-    readonly property var shown: quota && quota.status === "ok" ? quota : lastGood
+    readonly property var shown: quota && quota.status === "ok" ? quota
+        : lastGood && (!quota || !quota.origin || quota.origin === lastGood.origin) ? lastGood : null
 
     function parseList(raw) {
         var seen = {};
@@ -264,7 +265,7 @@ PluginComponent {
     readonly property bool hasActivity: (pillProvider?.activity || []).length > 0
 
     // Fixed hues: stock themes have no tertiary, and account colours must not read as health.
-    readonly property var accountPalette: ["#4dd0e1", "#ce93d8", "#fff59d"]
+    readonly property var accountPalette: ["#4dd0e1", "#ce93d8", "#fff59d", "#9fa8da"]
     readonly property color otherColor: Theme.outline || "#938f99"
 
     readonly property var accountColors: {
@@ -482,7 +483,9 @@ PluginComponent {
 
     readonly property bool usageHasTokens: modelTotals.length > 0
     function dayValue(entry) {
-        return usageHasTokens ? dayTokens(entry) : entry.requests + entry.failed;
+        if (!usageHasTokens)
+            return entry.requests + entry.failed;
+        return Object.values(entry.accounts || {}).reduce((max, account) => Math.max(max, dayTokens(account)), dayTokens(entry));
     }
     readonly property real dayMax: activity.reduce((max, entry) => Math.max(max, dayValue(entry)), 0)
 
@@ -718,7 +721,7 @@ PluginComponent {
                 Qt.callLater(() => quotaProcess.running = true);
                 return;
             }
-            root.forceFetch = false;
+            root.forceFetch = root.forceFetch && root.quota?.status !== "ok";
             if (exitCode !== 0 || !root.receivedThisRun)
                 root.quota = ({ status: "script-error", error: "fetch failed", stale: true, providers: [] });
         }
@@ -1212,6 +1215,11 @@ PluginComponent {
                                     Keys.onSpacePressed: root.toggleAccount(accountCard.expandKey, accountCard.expanded)
                                     Keys.onReturnPressed: root.toggleAccount(accountCard.expandKey, accountCard.expanded)
                                     Keys.onEnterPressed: root.toggleAccount(accountCard.expandKey, accountCard.expanded)
+                                    onActiveFocusChanged: {
+                                        if (activeFocus)
+                                            activityScroll.contentY = Math.max(accountCard.y + height - activityScroll.height,
+                                                                               Math.min(accountCard.y, activityScroll.contentY));
+                                    }
 
                                     Rectangle {
                                         anchors.fill: parent

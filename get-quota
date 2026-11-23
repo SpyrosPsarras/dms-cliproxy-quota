@@ -13,8 +13,8 @@ FORCE=0
 [ "${1:-}" = "--force" ] && FORCE=1
 
 emit_bare() {
-    jq -cn --arg status "$1" --arg error "$2" \
-        '{status: $status, error: $error, stale: true, anyProblem: false, drift: false, providers: []}'
+    jq -cn --arg status "$1" --arg error "$2" --arg origin "${origin:-}" \
+        '{status: $status, error: $error, origin: $origin, stale: true, anyProblem: false, drift: false, providers: []}'
     exit 0
 }
 
@@ -158,7 +158,7 @@ activity=$(jq -s '
     })
     | from_entries' "$HIST_FILE" 2>/dev/null) || activity="{}"
 
-jq -c --arg contractLatest "${contract_latest:-}" --argjson contract "$CONTRACT" --argjson activity "$activity" '
+jq -c --arg origin "$origin" --arg contractLatest "${contract_latest:-}" --argjson contract "$CONTRACT" --argjson activity "$activity" '
     def live: (.disabled | not) and (.unavailable | not) and .supported
               and ((.groups // []) | length > 0);
     def bottleneck: [.groups[].remainingFraction] | min;
@@ -189,6 +189,7 @@ jq -c --arg contractLatest "${contract_latest:-}" --argjson contract "$CONTRACT"
     {
         status: "ok",
         error: "",
+        origin: $origin,
         stale: (.cache.stale // false),
         updatedAt: (.cache.updatedAt // .generatedAt // null),
         generatedAt: (.generatedAt // null),

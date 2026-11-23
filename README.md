@@ -42,7 +42,7 @@ freedesktop Secret Service vault.
   bar.
 - **Popout** — a status line (loading, refreshing, updated, stale, or the
   fetch error) with the taskbar-warnings bell and a refresh button, then one
-  tab per provider with its remaining percentage, arrows or ←/→ to switch.
+  tab per provider with its remaining percentage; click a tab or press ←/→.
   Each provider page reads top to bottom:
   - **Quota remaining** — one row per quota group with its reset countdown
     and a bar. The group that sets the taskbar number is in bold. A pace

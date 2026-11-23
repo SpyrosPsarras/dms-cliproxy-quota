@@ -71,7 +71,7 @@ context.selectedAccount = '';
 const palette = source.match(/readonly property var accountPalette: (\[.*\])/);
 assert.ok(palette, 'accountPalette binding is missing');
 context.accountPalette = vm.runInContext(palette[1], context);
-assert.deepEqual(plain(context.accountPalette), ['#4dd0e1', '#ce93d8', '#fff59d']);
+assert.deepEqual(plain(context.accountPalette), ['#4dd0e1', '#ce93d8', '#fff59d', '#9fa8da']);
 Object.defineProperty(context, 'accountColors', {get: () => block('accountColors')});
 Object.defineProperty(context, 'showAccountSplit', {get: () => block('showAccountSplit')});
 runFunction('hasAccountTokens');
@@ -199,6 +199,15 @@ test('a selected account keeps its own counts even when the provider count is lo
     }
 });
 
+test('the shared day scale covers account totals when the provider reports fewer tokens', () => {
+    runFunction('dayValue');
+    context.usageHasTokens = true;
+    assert.equal(context.dayValue({tokens: {}, accounts: {[first]: {tokens: {x: 50}}, [second]: {tokens: {x: 20}}}}), 50);
+    assert.equal(context.dayValue({tokens: {x: 80}, accounts: {[first]: {tokens: {x: 50}}}}), 80);
+    context.usageHasTokens = false;
+    assert.equal(context.dayValue({requests: 3, failed: 1, tokens: {}}), 4);
+});
+
 test('a day before the account split is all "other" while the split shows', () => {
     const detail = context.dayRows({...deployDay, accounts: undefined});
     assert.deepEqual(groups(detail), [['other', 'other', '#other', 578, [['X', 500], ['Y', 70], ['Z', 8]]]]);
@@ -261,6 +270,12 @@ test('the status line says what the numbers are', () => {
     assert.equal(status({...good, stale: true}), 'stale · updated 5m');
     assert.equal(status({status: 'unreachable', error: 'proxy unreachable'}, good), 'proxy unreachable · updated 5m');
     assert.equal(status({status: 'no-key', error: 'key unavailable'}), 'key unavailable');
+    const shownBinding = source.match(/^    readonly property var shown: ([\s\S]*?)\n    [a-z]/m)[1];
+    const shown = (quota, lastGood) => vm.runInContext(shownBinding, Object.assign(context, {quota, lastGood}));
+    const cached = {status: 'ok', origin: 'https://a.test'};
+    assert.equal(shown({status: 'unreachable', origin: 'https://a.test'}, cached), cached, 'same source keeps its cache');
+    assert.equal(shown({status: 'unreachable', origin: 'https://b.test'}, cached), null, 'another source never shows the old cache');
+    assert.equal(shown({status: 'no-key', origin: ''}, cached), cached, 'an unknown source keeps the cache, dimmed');
     context.forceFetch = true;
     context.quotaProcess.running = true;
     assert.equal(status(good), 'Refreshing…');
