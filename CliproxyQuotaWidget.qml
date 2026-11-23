@@ -293,7 +293,6 @@ PluginComponent {
     readonly property string todayDate: Qt.formatDate(new Date(nowMs), "yyyy-MM-dd")
 
     // The last seven calendar days, oldest first; a day without history is an empty slot.
-    // Keyed on the date, not the clock, so the day delegates (and keyboard focus) survive each tick.
     readonly property var activity: {
         var byDate = {};
         (pillProvider?.activity || []).forEach(entry => byDate[entry.date] = entry);
@@ -529,7 +528,6 @@ PluginComponent {
     readonly property bool noUsage: usageStats[1].tokens === 0 && usageStats[1].requests === 0
                                     && (usageStats[1].recorded === 0 || usageStats[1].recorded === activity.length)
     readonly property bool hasUnattributed: activity.some(entry => visibleSegments(daySegments(entry)).some(part => part.color === otherColor))
-    // Slivers under 2% of the scale read as rendering faults; the day detail keeps them.
     function visibleSegments(segments) {
         var shown = segments.filter(part => part.value >= 0.02 * dayMax);
         if (shown.length === 0 && segments.length > 0)
@@ -567,7 +565,6 @@ PluginComponent {
         return total > room ? heights.map(h => h * room / total) : heights;
     }
 
-    // Below the bars when it fits, else above them, else as low as the popout allows.
     function dayOverlayPosition(left, right, rowTop, rowBottom, width, height, boundsWidth, boundsHeight, gap, inset) {
         var centeredX = (left + right - width) / 2;
         var y = rowBottom + gap + height <= boundsHeight ? rowBottom + gap
@@ -585,7 +582,6 @@ PluginComponent {
     }
 
     property var expandedAccounts: ({})
-    // The account or model family whose row holds keyboard focus, so focus follows it when a poll reorders rows.
     property string focusKey: ""
     function toggleAccount(key, expanded) {
         var next = Object.assign({}, expandedAccounts);
@@ -595,7 +591,6 @@ PluginComponent {
 
     readonly property var accountChipList: showAccountSplit ? [{ authIndex: "", label: tr("All accounts") }].concat(splitAccounts) : []
 
-    // The popout lists below use count models: a poll updates their rows in place, so keyboard focus survives it.
     readonly property var visibleFamilies: modelFamilies
         .map(family => Object.assign({}, family, { viewTotal: familyViewTotal(family) }))
         .filter(family => family.viewTotal > 0)
@@ -945,7 +940,6 @@ PluginComponent {
                     root.selectedAccount = "";
                     dayOverlay.day = null;
                     activityScroll.contentY = 0;
-                    // A retained popout would hand focus back to its last focused row; start from a neutral item.
                     Qt.callLater(() => openFocus.forceActiveFocus());
                 }
             }
@@ -987,7 +981,6 @@ PluginComponent {
                 function onFocusedProviderIdChanged() {
                     activityScroll.contentY = 0;
                     dayOverlay.day = null;
-                    // Focus in the old page or on the old tab moves to the new tab.
                     for (var item = popoutRoot.Window.activeFocusItem; item; item = item.parent) {
                         if (item === accountsColumn || item === navTabs) {
                             Qt.callLater(() => providerTabs.itemAt(root.focusedIndex)?.forceActiveFocus());
@@ -1623,7 +1616,12 @@ PluginComponent {
                                     Keys.onSpacePressed: root.selectedAccount = modelData.authIndex
                                     Keys.onReturnPressed: root.selectedAccount = modelData.authIndex
                                     Keys.onEnterPressed: root.selectedAccount = modelData.authIndex
-                                    onActiveFocusChanged: if (activeFocus) root.focusKey = ""
+                                    onActiveFocusChanged: {
+                                        if (activeFocus) {
+                                            root.focusKey = "";
+                                            popoutRoot.reveal(accountChip);
+                                        }
+                                    }
 
                                     Row {
                                         id: chipContent
@@ -1716,7 +1714,6 @@ PluginComponent {
                                     width: parent.width
                                     opacity: root.dataLive ? 1 : 0.5
 
-                                    // A count model keeps the seven slots (and their focus and open detail) across refreshes.
                                     Repeater {
                                         model: root.activity.length
 
@@ -2013,7 +2010,6 @@ PluginComponent {
                     + accountsColumn.y + activityCard.y + activityContent.y + barsRow.y
                 readonly property real rowBottom: rowTop + barsRow.height
                 readonly property real viewTop: popoutColumn.y + activityScroll.y
-                // Sized to the roomier side of the bars so it never has to cover them; it scrolls inside.
                 readonly property real room: Math.max(popoutRoot.height - rowBottom, rowTop) - Theme.spacingS
                 readonly property var position: {
                     if (!day)
