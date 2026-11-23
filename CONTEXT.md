@@ -22,8 +22,8 @@ health colours. It applies only to providers with at least two accounts
 and only after per-account token data arrives.
 
 **Live account**:
-An account that is not `disabled`, not `unavailable`, is `supported`, and
-reports at least one group. Only live accounts feed the aggregate.
+An account that is not `disabled`, not `unavailable`, is `supported`, has
+`status` "active", and reports at least one group. Only live accounts feed the aggregate.
 
 **Troubled account**:
 An account that is not serving: `disabled`, `unavailable`, or — when
@@ -46,8 +46,8 @@ _Avoid_: usage, used, consumed
 A provider's headline number: the worst group of the live account that took the
 newest request. If no live account reports a request time, the worst group
 across all live accounts.
-The winning account has `headline: true` and is tagged "shown above" in the account list
-when the provider has more than one account.
+The winning account has `headline: true`; the popout names it on the quota card and
+lists the other accounts below.
 _Avoid_: total, average
 
 **Focused provider**:

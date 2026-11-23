@@ -20,7 +20,7 @@ const yesterday = {date: '2026-11-18', requests: 5, failed: 0, tokens: {small: 1
 }};
 const older = {date: '2026-11-17', requests: 2, failed: 0, tokens: {small: 30}};
 const context = vm.createContext({pillProvider: {accounts}, activity: [older, yesterday, today],
-    selectedAccount: second, todayDate, tr: key => key, Theme: {}});
+    selectedAccount: second, todayDate, tr: key => key === '%1 recorded' ? '%1 recorded' : key, Theme: {}});
 context.root = context;
 function block(name) {
     const match = source.match(new RegExp(`^    readonly property (?:var|bool|string|int) ${name}: \\{([\\s\\S]*?)\\n    \\}`, 'm'));
@@ -40,7 +40,7 @@ Object.defineProperty(context, 'viewActivity', {get() {
 }});
 assert.deepEqual(plain(block('usageStats')), [
     {label: 'Today', tokens: 60, requests: 4, missing: false},
-    {label: '2 of 7 days', tokens: 110, requests: 6, missing: false},
+    {label: '7 days · 2 recorded', tokens: 110, requests: 6, missing: false, recorded: 2},
 ], 'usage stats should count only the selected account, over the days it has history');
 assert.deepEqual(plain(context.viewEntry(today)), {
     date: todayDate, requests: 3, failed: 1, tokens: {small: 20, large: 40}, missing: false,
@@ -56,16 +56,27 @@ context.selectedAccount = '';
 assert.equal(context.viewEntry(today), today);
 assert.deepEqual(plain(block('usageStats')), [
     {label: 'Today', tokens: 200, requests: 11, missing: false},
-    {label: '7 days', tokens: 330, requests: 18, missing: false},
+    {label: '7 days', tokens: 330, requests: 18, missing: false, recorded: 3},
 ], 'All keeps the provider totals, including unattributed usage');
 const activityBefore = context.activity;
 context.activity = [yesterday, {date: todayDate, requests: 0, failed: 0, tokens: {}, missing: true}];
-assert.deepEqual(plain(block('usageStats')).map(({missing, requests}) => [missing, requests]), [[true, 0], [false, 5]],
+assert.deepEqual(plain(block('usageStats')).map(({missing, requests, recorded}) => [missing, requests, recorded]), [[true, 0, undefined], [false, 5, 1]],
     'today without history is missing, not a measured zero');
-assert.equal(plain(block('usageStats'))[1].label, '%1 of 7 days'.replace('%1', 1), 'a partial week says how many days it covers');
+assert.equal(plain(block('usageStats'))[1].label, '7 days · 1 recorded', 'a partial week says how many days it covers');
 context.activity = [{date: todayDate, requests: 0, failed: 0, tokens: {}}];
 assert.deepEqual(plain(block('usageStats')).map(({missing}) => missing), [false, false], 'a measured zero stays zero');
 assert.equal(plain(block('usageStats'))[1].label, '7 days', 'a fully recorded week keeps its plain label');
+const noUsage = activity => {
+    context.activity = activity;
+    context.usageStats = block('usageStats');
+    return vm.runInContext(source.match(/^    readonly property bool noUsage: ([\s\S]*?)\n    readonly/m)[1], context);
+};
+const zeroDay = {date: todayDate, requests: 0, failed: 0, tokens: {}};
+const missingDay = {date: '2026-11-18', requests: 0, failed: 0, tokens: {}, missing: true};
+assert.equal(noUsage([zeroDay]), true, 'a fully recorded idle week reads as no usage');
+assert.equal(noUsage([missingDay, zeroDay]), false, 'a partly recorded idle week keeps its recorded-days summary');
+assert.equal(noUsage([missingDay]), true, 'no history at all reads as no data');
+delete context.usageStats;
 context.activity = activityBefore;
 
 runFunction('familyTokens');
@@ -141,10 +152,17 @@ assert.equal(context.selectedAccount, '', 'reset the selection when the provider
 
 const opened = source.match(/^                function onOpened\(\) \{([\s\S]*?)\n                \}/m);
 assert.ok(opened, 'account selection must react to opening the popout');
-context.Qt = {callLater: () => {}};
+let neutral = false;
+context.Qt = {callLater: f => f()};
+context.openFocus = {forceActiveFocus() { neutral = true; }};
+context.activityScroll = {contentY: 240};
 context.dayOverlay = {day: {modelData: today}};
 context.selectedAccount = second;
+context.focusKey = 'account:a';
 vm.runInContext(opened[1], context);
+assert.equal(context.focusKey, '', 'a reopened popout does not jump back to a row focused before it closed');
+assert.ok(neutral, 'a reopened popout starts focus on a neutral item, not the last focused row');
+assert.equal(context.activityScroll.contentY, 0, 'a reopened popout starts at the top');
 assert.equal(context.selectedAccount, '', 'reset the selection when the popout opens');
 assert.equal(context.dayOverlay.day, null, 'do not reopen with a stale day overlay');
 console.log('PASS: account colours, split availability, filtered usage and family totals, and account reset');
@@ -177,7 +195,7 @@ test('a split day lists each account with its models, then the unattributed rest
     assert.deepEqual(groups(detail), [
         [first, 'Account A', context.accountPalette[0], 37, [['X', 31], ['Y', 6]]],
         [second, 'Label B', context.accountPalette[1], 6, [['X', 5], ['Z', 1]]],
-        ['other', 'other', '#other', 535, [['X', 464], ['Y', 64], ['Z', 7]]],
+        ['other', 'unattributed', '#other', 535, [['X', 464], ['Y', 64], ['Z', 7]]],
     ]);
     assert.equal(context.dayRows(deployDay).groups[2].models[2].color, '#other', 'a model outside the families gets the neutral colour');
 });
@@ -226,7 +244,7 @@ test('the shared day scale covers account totals when the provider reports fewer
 
 test('a day before the account split is all "other" while the split shows', () => {
     const detail = context.dayRows({...deployDay, accounts: undefined});
-    assert.deepEqual(groups(detail), [['other', 'other', '#other', 578, [['X', 500], ['Y', 70], ['Z', 8]]]]);
+    assert.deepEqual(groups(detail), [['other', 'unattributed', '#other', 578, [['X', 500], ['Y', 70], ['Z', 8]]]]);
 });
 
 test('without an account split a day is one unnamed group', () => {
@@ -238,6 +256,17 @@ test('without an account split a day is one unnamed group', () => {
     } finally {
         context.pillProvider = {accounts};
     }
+});
+
+test('slivers under 2% of the scale leave the bars but never empty a day', () => {
+    runFunction('visibleSegments');
+    context.dayMax = 1000;
+    const kept = plain(context.visibleSegments([{value: 900, color: 'a'}, {value: 10, color: 'b'}, {value: 90, color: 'c'}]));
+    assert.deepEqual(kept.map(part => part.color), ['a', 'c']);
+    assert.ok(Math.abs(kept.reduce((sum, part) => sum + part.value, 0) - 1000) < 1e-9, 'the bar keeps the day total height');
+    assert.deepEqual(plain(context.visibleSegments([{value: 5, color: 'a'}, {value: 8, color: 'b'}])), [{value: 13, color: 'b'}],
+        'a tiny day keeps its largest part at the full day height');
+    assert.deepEqual(plain(context.visibleSegments([])), []);
 });
 
 test('bar heights stay proportional, keep tiny parts visible and fit the plot with gaps', () => {
@@ -264,6 +293,74 @@ test('a model only seen in account counts still gets a Models row', () => {
     }
 });
 
+test('the seven day slots come from the date alone, so a clock tick does not rebuild them', () => {
+    const activitySource = source.match(/^    readonly property var activity: \{([\s\S]*?)\n    \}/m)[1];
+    assert.ok(!/nowMs/.test(activitySource), 'the day list must not read the clock');
+    for (const list of ['activity', 'visibleProviders', 'otherAccounts', 'accountChipList', 'visibleFamilies'])
+        assert.match(source, new RegExp(`model: root\\.${list}\\.length\\n`), `a refresh updates the ${list} rows in place instead of rebuilding them`);
+    const days = vm.runInContext(`(function() {${activitySource}})()`, Object.assign(vm.createContext({}), {
+        todayDate: '2026-11-23', pillProvider: {activity: [{date: '2026-11-22', requests: 3, failed: 0, tokens: {}}]},
+        Qt: {formatDate: d => [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-')}}));
+    assert.deepEqual(Array.from(days, d => d.date), ['2026-11-17', '2026-11-18', '2026-11-19', '2026-11-20', '2026-11-21', '2026-11-22', '2026-11-23']);
+    assert.equal(days[5].requests, 3);
+    assert.equal(days[6].missing, true);
+});
+
+test('keyboard focus follows the account or model family when a poll reorders rows', () => {
+    const fn = source.match(/^            function restoreFocus\(\) \{[\s\S]*?\n            \}/m)[0];
+    const row = (key, name) => {
+        const target = {name, activeFocus: false, rowHeader: true, forceActiveFocus() { focused.item = target; }};
+        return {focusKey: key, focusTarget: target};
+    };
+    const focused = {item: null};
+    const tab = {forceActiveFocus() { focused.item = 'tab'; }};
+    const run = (focusKey, rows, active, callLater = f => f()) => {
+        focused.item = null;
+        const ctx = vm.createContext({root: {focusKey, focusedIndex: 0}, Qt: {callLater},
+            popoutRoot: {visible: true, Window: {activeFocusItem: active}},
+            accountRows: {count: rows.length, itemAt: i => rows[i]}, familyRows: {count: 0, itemAt: () => null},
+            chipRows: {count: rows.length, itemAt: i => rows[i]},
+            providerTabs: {count: rows.length, itemAt: i => focusKey.startsWith('tab:') ? rows[i] : tab}});
+        vm.runInContext(fn + '; restoreFocus();', ctx);
+        return [focused.item === 'tab' ? 'tab' : focused.item?.name ?? null, ctx.root.focusKey];
+    };
+    const a = row('account:a', 'A'), b = row('account:b', 'B');
+    assert.deepEqual(run('account:a', [b, a], b.focusTarget), ['A', 'account:a'], 'focus moves with the account to its new row');
+    assert.deepEqual(run('account:a', [b], b.focusTarget), ['tab', ''], 'a vanished account hands focus to the selected tab');
+    assert.deepEqual(run('account:a', [b, a], {name: 'chip'}), [null, 'account:a'], 'focus elsewhere is left alone');
+    assert.deepEqual(run('', [b, a], b.focusTarget), [null, ''], 'nothing to restore without a focused row');
+    const t1 = row('tab:claude', 'claude'), t2 = row('tab:codex', 'codex');
+    assert.deepEqual(run('tab:codex', [t2, t1], t1.focusTarget), ['codex', 'tab:codex'], 'a focused tab keeps focus when providers reorder');
+    const queued = [];
+    const twice = vm.createContext({root: {focusKey: 'account:a', focusedIndex: 0}, Qt: {callLater: f => queued.push(f)},
+        popoutRoot: {visible: true, Window: {activeFocusItem: b.focusTarget}},
+        accountRows: {count: 0, itemAt: () => null}, familyRows: {count: 0, itemAt: () => null},
+        chipRows: {count: 0, itemAt: () => null}, providerTabs: {count: 0, itemAt: () => undefined}});
+    queued.length = 0;
+    vm.runInContext(fn + '; restoreFocus(); restoreFocus();', twice);
+    assert.doesNotThrow(() => queued.forEach(f => f()), 'two queued restores after every provider vanished do not throw');
+    assert.equal(twice.root.focusKey, '');
+    const c1 = row('chip:a1', 'chipA'), c2 = row('chip:b2', 'chipB');
+    assert.deepEqual(run('chip:b2', [c2, c1], c1.focusTarget), ['chipB', 'chip:b2'], 'a focused chip keeps focus when chips reorder');
+});
+
+test('when hover ends, the day detail returns to the keyboard-focused day', () => {
+    const body = source.match(/id: dayCloseTimer[\s\S]*?onTriggered: \{([\s\S]*?)\n                \}/)[1];
+    const days = [{focusedDay: false}, {focusedDay: true}, {focusedDay: false}];
+    const ctx = vm.createContext({dayOverlayHover: {hovered: false}, dayOverlay: {day: days[2]},
+        dayRepeater: {count: 3, itemAt: i => days[i]}});
+    vm.runInContext(`(function() {${body}})()`, ctx);
+    assert.equal(ctx.dayOverlay.day, days[1]);
+    days[1].focusedDay = false;
+    ctx.dayOverlay.day = days[2];
+    vm.runInContext(`(function() {${body}})()`, ctx);
+    assert.equal(ctx.dayOverlay.day, null, 'no focused day, no detail');
+    ctx.dayOverlayHover.hovered = true;
+    ctx.dayOverlay.day = days[0];
+    vm.runInContext(`(function() {${body}})()`, ctx);
+    assert.equal(ctx.dayOverlay.day, days[0], 'the detail stays while the pointer is on it');
+});
+
 test('the bold quota row is the lowest group, only when there is a choice', () => {
     const provider = context.pillProvider;
     const limiting = groups => { context.pillProvider = {aggregateGroups: groups}; return block('limitingGroup'); };
@@ -278,7 +375,8 @@ test('the status line says what the numbers are', () => {
     Object.assign(context, {forceFetch: false, quotaProcess: {running: false}, formatAge: iso => iso ? '5m' : ''});
     runFunction('ago');
     const status = (quota, lastGood = null) => {
-        Object.assign(context, {quota, lastGood, shown: quota && quota.status === 'ok' ? quota : lastGood});
+        Object.assign(context, {quota, lastGood, shown: quota && quota.status === 'ok' ? quota : lastGood,
+            dataLive: !!quota && quota.status === 'ok' && !quota.stale});
         return block('statusText');
     };
     const good = {status: 'ok', stale: false, updatedAt: 't'};
@@ -308,6 +406,8 @@ test('the status line says what the numbers are', () => {
     context.forceFetch = true;
     context.quotaProcess.running = true;
     assert.equal(status(good), 'Refreshing…');
+    assert.equal(status({status: 'unreachable', error: 'proxy unreachable'}, good), 'Refreshing… · proxy unreachable · updated 5m ago',
+        'a refresh keeps the reason the numbers are not live');
 });
 
 test('bars are split by account when possible, otherwise by model family', () => {
@@ -332,18 +432,18 @@ test('bars are split by account when possible, otherwise by model family', () =>
 test('day overlay centers below the hovered day and clamps to the side margins', () => {
     runFunction('dayOverlayPosition');
     const position = (left, right) =>
-        plain(context.dayOverlayPosition(left, right, 240, 260, 180, 420, 620, 8, 16));
+        plain(context.dayOverlayPosition(left, right, 160, 240, 260, 180, 420, 620, 8, 16));
     assert.deepEqual(position(134, 184), {x: 29, y: 248});
     assert.deepEqual(position(32, 82), {x: 16, y: 248});
     assert.deepEqual(position(338, 388), {x: 144, y: 248});
 });
 
-test('day overlay gives up the gap before overlapping the bars row', () => {
+test('day overlay never covers the bars when it fits above them', () => {
     runFunction('dayOverlayPosition');
-    const y = rowBottom => context.dayOverlayPosition(134, 184, rowBottom, 260, 180, 420, 620, 8, 16).y;
-    assert.equal(y(436), 440);
-    assert.equal(y(440), 440);
-    assert.equal(y(441), 440);
-    assert.equal(y(-15), 0);
+    const y = (rowTop, rowBottom, height = 180) => context.dayOverlayPosition(134, 184, rowTop, rowBottom, 260, height, 420, 620, 8, 16).y;
+    assert.equal(y(352, 432), 440, 'below when it fits');
+    assert.equal(y(400, 480), 212, 'above when it does not fit below');
+    assert.equal(y(100, 180, 500), 120, 'as low as the popout allows when it fits neither way');
+    assert.equal(y(-95, -15), 0, 'a day scrolled off the top never puts the detail above the popout');
 });
 NODE

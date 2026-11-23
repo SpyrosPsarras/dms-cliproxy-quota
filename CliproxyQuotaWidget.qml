@@ -109,7 +109,7 @@ PluginComponent {
                 font.pixelSize: quotaRow.emphasis ? Theme.fontSizeMedium : Theme.fontSizeSmall
                 font.weight: quotaRow.emphasis ? Font.Bold : Font.Medium
                 font.features: ({ tnum: 1 })
-                color: root.ringColor(quotaRow.fraction)
+                color: root.liveColor(root.ringColor(quotaRow.fraction))
             }
         }
 
@@ -123,7 +123,7 @@ PluginComponent {
                 width: parent.width * quotaRow.fraction
                 height: parent.height
                 radius: parent.radius
-                color: root.ringColor(quotaRow.fraction)
+                color: root.liveColor(root.ringColor(quotaRow.fraction))
             }
         }
 
@@ -131,7 +131,7 @@ PluginComponent {
             visible: quotaRow.overPace >= 1 && quotaRow.fraction > 0
             text: quotaRow.overPace + "% " + root.tr("over pace")
             font.pixelSize: Theme.fontSizeSmall - 1
-            color: Theme.warning
+            color: root.liveColor(Theme.warning)
         }
     }
 
@@ -272,6 +272,17 @@ PluginComponent {
         });
         return groups.length > 1 ? lowest : -1;
     }
+    readonly property var headlineAccount: pillProvider?.accounts?.find(account => account.headline) ?? null
+    readonly property var otherAccounts: (pillProvider?.accounts || []).filter(account => !account.headline)
+    function accountDetail(account) {
+        return [
+            account.status !== "active" && (account.disabled || account.unavailable || account.supported === false)
+                ? tr(account.status) : "",
+            account.lastRequestAt && !account.headline ? tr("last request") + " " + ago(account.lastRequestAt) : "",
+            formatCount(account.success || 0) + " " + tr("ok"),
+            formatCount(account.failed || 0) + " " + tr("failed")
+        ].filter(part => part !== "").join(" \u00b7 ");
+    }
     readonly property bool dataLive: quota !== null && quota.status === "ok" && quota.stale !== true
     readonly property var trackedProviders: visibleProviders.filter(p => !isUntracked(p.provider))
     readonly property bool allProblem: trackedProviders.length > 0 && trackedProviders.every(p => p.problem === true)
@@ -287,8 +298,7 @@ PluginComponent {
         (pillProvider?.activity || []).forEach(entry => byDate[entry.date] = entry);
         var days = [];
         for (var i = 6; i >= 0; i--) {
-            var day = new Date(nowMs);
-            day.setHours(12, 0, 0, 0);
+            var day = new Date(todayDate + "T12:00:00");
             day.setDate(day.getDate() - i);
             var key = Qt.formatDate(day, "yyyy-MM-dd");
             days.push(byDate[key] || { date: key, requests: 0, failed: 0, tokens: {}, missing: true });
@@ -504,7 +514,7 @@ PluginComponent {
             });
             add(account.authIndex, account.label || account.account, accountColors[account.authIndex], capped);
         });
-        add("other", tr("other"), otherColor, rest);
+        add("other", tr("unattributed"), otherColor, rest);
         return detail;
     }
 
@@ -515,6 +525,17 @@ PluginComponent {
         return Object.values(entry.accounts || {}).reduce((max, account) => Math.max(max, dayTokens(account)), dayTokens(entry));
     }
     readonly property real dayMax: activity.reduce((max, entry) => Math.max(max, dayValue(entry)), 0)
+    readonly property bool noUsage: usageStats[1].tokens === 0 && usageStats[1].requests === 0
+                                    && (usageStats[1].recorded === 0 || usageStats[1].recorded === activity.length)
+    readonly property bool hasUnattributed: activity.some(entry => visibleSegments(daySegments(entry)).some(part => part.color === otherColor))
+    function visibleSegments(segments) {
+        var shown = segments.filter(part => part.value >= 0.02 * dayMax);
+        if (shown.length === 0 && segments.length > 0)
+            shown = [segments.reduce((max, part) => part.value > max.value ? part : max)];
+        var total = segments.reduce((sum, part) => sum + part.value, 0);
+        var kept = shown.reduce((sum, part) => sum + part.value, 0);
+        return shown.map(part => ({ value: part.value * total / kept, color: part.color }));
+    }
     readonly property bool hasBars: dayMax > 0 && activity.some(entry => daySegments(entry).length > 0)
 
     // Bar segments, bottom first: by account when the split exists, otherwise by model family.
@@ -544,12 +565,12 @@ PluginComponent {
         return total > room ? heights.map(h => h * room / total) : heights;
     }
 
-    function dayOverlayPosition(left, right, rowBottom, width, height, boundsWidth, boundsHeight, gap, inset) {
+    function dayOverlayPosition(left, right, rowTop, rowBottom, width, height, boundsWidth, boundsHeight, gap, inset) {
         var centeredX = (left + right - width) / 2;
-        return {
-            x: Math.max(inset, Math.min(centeredX, boundsWidth - inset - width)),
-            y: Math.max(0, Math.min(rowBottom + gap, boundsHeight - height))
-        };
+        var y = rowBottom + gap + height <= boundsHeight ? rowBottom + gap
+              : rowTop - gap - height >= 0 ? rowTop - gap - height
+              : boundsHeight - height;
+        return { x: Math.max(inset, Math.min(centeredX, boundsWidth - inset - width)), y: Math.max(0, y) };
     }
 
     // Survives the refresh that rebuilds the family delegates.
@@ -561,11 +582,14 @@ PluginComponent {
     }
 
     property var expandedAccounts: ({})
+    property string focusKey: ""
     function toggleAccount(key, expanded) {
         var next = Object.assign({}, expandedAccounts);
         next[key] = !expanded;
         expandedAccounts = next;
     }
+
+    readonly property var accountChipList: showAccountSplit ? [{ authIndex: "", label: tr("All accounts") }].concat(splitAccounts) : []
 
     readonly property var visibleFamilies: modelFamilies
         .map(family => Object.assign({}, family, { viewTotal: familyViewTotal(family) }))
@@ -590,18 +614,19 @@ PluginComponent {
                 today.requests = e.requests + e.failed;
             }
         }
+        week.recorded = recorded;
         if (recorded > 0 && recorded < viewActivity.length)
-            week.label = tr("%1 of 7 days").replace("%1", recorded);
+            week.label = tr("7 days") + " \u00b7 " + tr("%1 recorded").replace("%1", recorded);
         return [today, week];
     }
 
     function formatTokens(n) {
         if (n >= 1e9)
-            return (Math.round(n / 1e8) / 10) + "B";
+            return (n / 1e9).toFixed(1) + "B";
         if (n >= 1e6)
-            return (Math.round(n / 1e5) / 10) + "M";
+            return (n / 1e6).toFixed(1) + "M";
         if (n >= 1e3)
-            return (Math.round(n / 100) / 10) + "k";
+            return (n / 1e3).toFixed(1) + "k";
         return String(n);
     }
 
@@ -621,7 +646,11 @@ PluginComponent {
     // The provider that took the newest request. A manual focus holds until
     // that changes; then the pill follows it.
     property string activeProvider: pluginData.activeProvider || ""
+    onInteractionActiveChanged: if (!interactionActive) followActiveProvider()
+
     function followActiveProvider() {
+        if (interactionActive)
+            return;
         var newest = null;
         visibleProviders.forEach(p => {
             if (p.lastRequestEpoch != null && (!newest || p.lastRequestEpoch > newest.lastRequestEpoch))
@@ -682,7 +711,7 @@ PluginComponent {
             return "";
         var remainingMs = t - nowMs;
         if (remainingMs <= 0)
-            return tr("resets soon");
+            return tr("reset");
         var mins = Math.ceil(remainingMs / 60000);
         var days = Math.floor(mins / 1440);
         var hours = Math.floor((mins % 1440) / 60);
@@ -694,6 +723,10 @@ PluginComponent {
     }
 
     property bool receivedThisRun: false
+
+    function liveColor(color) {
+        return dataLive ? color : Theme.surfaceVariantText;
+    }
 
     function ringColor(fraction) {
         if (fraction >= 0.7)
@@ -710,20 +743,33 @@ PluginComponent {
         return remaining < 0 ? (pillProvider ? "\u2014" : "") + mark : Math.round(remaining * 100) + sign + mark;
     }
 
+    readonly property string pillTooltip: {
+        if (!pillProvider)
+            return quota === null ? tr("Loading…") : tr("no data");
+        var state = remaining >= 0 ? Math.round(remaining * 100) + "% " + tr("remaining")
+                  : pillProvider.problem === true ? tr("no account is serving") : tr("no quota reported");
+        return pillProvider.provider + ": " + state + (dataLive ? "" : " · " + tr("stale"));
+    }
+
+    function tabTooltip(provider) {
+        var state = typeof provider.aggregate === "number" ? Math.round(provider.aggregate * 100) + "% " + tr("remaining")
+                  : provider.problem === true ? tr("no account is serving") : tr("no quota reported");
+        return provider.provider + ": " + state;
+    }
+
     readonly property string pillIcon: quota === null ? "hourglass_empty"
         : pillProvider ? providerIcon(pillProvider.provider) : "cloud_off"
 
     readonly property string statusText: {
         if (quota === null)
             return tr("Loading…");
-        if (forceFetch && quotaProcess.running)
-            return tr("Refreshing…");
         var age = ago(shown ? shown.updatedAt : "");
-        if (quota.status !== "ok")
-            return (quota.error || tr("no data")) + (lastGood && age ? " · " + tr("updated") + " " + age : "");
-        if (quota.stale)
-            return tr("stale") + (age ? " · " + tr("updated") + " " + age : "");
-        return age ? tr("updated") + " " + age : "";
+        var text = quota.status !== "ok" ? (quota.error || tr("no data")) + (lastGood && age ? " · " + tr("updated") + " " + age : "")
+                 : quota.stale ? tr("stale") + (age ? " · " + tr("updated") + " " + age : "")
+                 : age ? tr("updated") + " " + age : "";
+        if (forceFetch && quotaProcess.running)
+            return dataLive || text === "" ? tr("Refreshing…") : tr("Refreshing…") + " · " + text;
+        return text;
     }
     readonly property bool needsSettings: quota !== null && (quota.status === "no-key" || quota.status === "no-endpoint")
     readonly property color statusColor: quota && quota.status !== "ok" ? Theme.error
@@ -781,6 +827,15 @@ PluginComponent {
         Row {
             spacing: Theme.spacingXS
             opacity: root.dataLive ? 1 : 0.6
+            Accessible.name: root.pillTooltip
+
+            DankTooltipV2 {
+                id: rowTip
+            }
+
+            HoverHandler {
+                onHoveredChanged: hovered ? rowTip.show(root.pillTooltip, parent, 0, 0, "bottom") : rowTip.hide()
+            }
 
             ProviderMark {
                 anchors.verticalCenter: parent.verticalCenter
@@ -817,6 +872,15 @@ PluginComponent {
         Column {
             spacing: Theme.spacingXS
             opacity: root.dataLive ? 1 : 0.6
+            Accessible.name: root.pillTooltip
+
+            DankTooltipV2 {
+                id: columnTip
+            }
+
+            HoverHandler {
+                onHoveredChanged: hovered ? columnTip.show(root.pillTooltip, parent, 0, 0, "right") : columnTip.hide()
+            }
 
             ProviderMark {
                 anchors.horizontalCenter: parent.horizontalCenter
@@ -832,7 +896,7 @@ PluginComponent {
 
 
             StyledText {
-                text: root.pillText("")
+                text: root.pillText("%")
                 visible: text !== ""
                 font.pixelSize: Theme.barTextSize(root.barThickness, root.barConfig?.fontScale, root.barConfig?.maximizeWidgetText)
                 color: Theme.surfaceText
@@ -869,16 +933,78 @@ PluginComponent {
                 target: root
                 property: "popoutHeight"
                 value: Math.round(Math.min(root.basePopoutHeight * 1.5,
-                                           Math.max(root.focusedIndex >= 0 ? root.basePopoutHeight : 0,
-                                                    popoutRoot.headerHeight + accountsColumn.height + Theme.spacingL)))
+                                           popoutRoot.headerHeight + accountsColumn.height + Theme.spacingL))
             }
             Connections {
                 target: popoutRoot.parentPopout
                 function onOpened() {
+                    root.focusKey = "";
                     root.selectedAccount = "";
                     dayOverlay.day = null;
-                    Qt.callLater(() => popoutRoot.forceActiveFocus());
+                    activityScroll.contentY = 0;
+                    Qt.callLater(() => openFocus.forceActiveFocus());
                 }
+            }
+
+            function restoreFocus() {
+                if (root.focusKey === "" || !popoutRoot.visible)
+                    return;
+                Qt.callLater(() => {
+                    if (root.focusKey === "" || !popoutRoot.visible)
+                        return;
+                    var active = popoutRoot.Window.activeFocusItem;
+                    if (active && active !== popoutRoot && active.rowHeader !== true)
+                        return;
+                    var rows = { account: accountRows, family: familyRows, tab: providerTabs, chip: chipRows }[root.focusKey.split(":")[0]];
+                    if (!rows)
+                        return;
+                    for (var i = 0; i < rows.count; i++) {
+                        var row = rows.itemAt(i);
+                        if (row && row.focusKey === root.focusKey) {
+                            if (!row.focusTarget.activeFocus)
+                                row.focusTarget.forceActiveFocus();
+                            return;
+                        }
+                    }
+                    root.focusKey = "";
+                    providerTabs.itemAt(root.focusedIndex)?.forceActiveFocus();
+                });
+            }
+
+            Connections {
+                target: root
+                function onOtherAccountsChanged() { popoutRoot.restoreFocus(); }
+                function onVisibleFamiliesChanged() { popoutRoot.restoreFocus(); }
+                function onVisibleProvidersChanged() { popoutRoot.restoreFocus(); }
+                function onAccountChipListChanged() { popoutRoot.restoreFocus(); }
+            }
+
+            function reveal(item) {
+                var top = item.mapToItem(accountsColumn, 0, 0).y;
+                activityScroll.contentY = Math.max(0, Math.min(top, Math.max(activityScroll.contentY, top + item.height - activityScroll.height)));
+            }
+
+            Connections {
+                target: root
+                function onFocusedProviderIdChanged() {
+                    activityScroll.contentY = 0;
+                    dayOverlay.day = null;
+                    for (var item = popoutRoot.Window.activeFocusItem; item; item = item.parent) {
+                        if (item === accountsColumn || item === navTabs) {
+                            Qt.callLater(() => providerTabs.itemAt(root.focusedIndex)?.forceActiveFocus());
+                            break;
+                        }
+                    }
+                }
+            }
+
+            DankTooltipV2 {
+                id: popoutTip
+            }
+
+            Item {
+                id: openFocus
+                focus: true
             }
 
             Keys.onPressed: event => {
@@ -932,18 +1058,6 @@ PluginComponent {
                         spacing: Theme.spacingXS
 
                         DankActionButton {
-                            readonly property bool untracked: root.pillProvider !== null && root.isUntracked(root.pillProvider.provider)
-                            visible: root.pillProvider !== null
-                            buttonSize: 32
-                            iconName: untracked ? "notifications_off" : "notifications"
-                            iconColor: untracked ? Theme.surfaceVariantText : Theme.surfaceText
-                            tooltipText: root.pillProvider ? root.tr("Taskbar warnings") + " \u00b7 " + root.pillProvider.provider
-                                                             + ": " + (untracked ? root.tr("off") : root.tr("on")) : ""
-                            anchors.verticalCenter: parent.verticalCenter
-                            onClicked: if (root.pillProvider) root.toggleTracking(root.pillProvider.provider)
-                        }
-
-                        DankActionButton {
                             iconName: "refresh"
                             buttonSize: 32
                             tooltipText: root.tr("Refresh")
@@ -959,136 +1073,127 @@ PluginComponent {
                     }
                 }
 
-                Item {
+                Flow {
                     id: navTabs
-                    width: parent.width
-                    height: 44
+                    x: Theme.spacingM
+                    width: parent.width - 2 * Theme.spacingM
+                    spacing: Theme.spacingS
                     visible: root.focusedIndex >= 0
                     opacity: root.dataLive ? 1 : 0.6
 
-                    Flickable {
-                        id: providerScroll
-                        anchors.fill: parent
-                        anchors.leftMargin: Theme.spacingM
-                        anchors.rightMargin: Theme.spacingM
-                        contentWidth: Math.max(width, providerRow.width)
-                        contentHeight: height
-                        flickableDirection: Flickable.HorizontalFlick
-                        boundsBehavior: Flickable.StopAtBounds
-                        clip: true
+                    Repeater {
+                        id: providerTabs
+                        model: root.visibleProviders.length
 
-                        function revealFocused() {
-                            var tab = providerTabs.itemAt(root.focusedIndex);
-                            if (!tab) return;
-                            var left = providerRow.x + tab.x;
-                            var right = left + tab.width;
-                            contentX = Math.max(0, Math.min(contentWidth - width,
-                                left < contentX ? left : right > contentX + width ? right - width : contentX));
-                        }
-                        onWidthChanged: Qt.callLater(revealFocused)
-                        Connections {
-                            target: root
-                            function onFocusedIndexChanged() { Qt.callLater(providerScroll.revealFocused); }
-                        }
+                        delegate: StyledRect {
+                            id: providerTab
+                            required property int index
+                            readonly property var modelData: root.visibleProviders[index] ?? ({ provider: "", aggregate: null, problem: false })
+                            readonly property bool focused: index === root.focusedIndex
+                            readonly property string iconSource: root.providerIconSource(modelData.provider)
 
-                    Row {
-                        id: providerRow
-                        x: Math.max(0, (providerScroll.width - width) / 2)
-                        anchors.verticalCenter: parent.verticalCenter
-                        onWidthChanged: Qt.callLater(providerScroll.revealFocused)
-                        spacing: Theme.spacingS
+                            height: 36
+                            width: tabContent.width + 2 * Theme.spacingM
+                            radius: height / 2
+                            color: focused ? Theme.withAlpha(Theme.primary, 0.16) : Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
+                            border.width: focused ? 2 : 1
+                            border.color: focused ? Theme.primary : Theme.outlineLight
+                            readonly property string tip: root.tabTooltip(modelData)
+                            activeFocusOnTab: true
+                            Accessible.role: Accessible.PageTab
+                            Accessible.name: tip
+                            Keys.onSpacePressed: root.focusPage(index)
+                            Keys.onReturnPressed: root.focusPage(index)
+                            Keys.onEnterPressed: root.focusPage(index)
+                            readonly property string focusKey: "tab:" + modelData.provider
+                            readonly property Item focusTarget: providerTab
+                            readonly property bool rowHeader: true
+                            onActiveFocusChanged: if (activeFocus) root.focusKey = focusKey
 
-                        Repeater {
-                            id: providerTabs
-                            model: root.visibleProviders
+                            Row {
+                                id: tabContent
+                                anchors.centerIn: parent
+                                spacing: Theme.spacingXS
 
-                            delegate: StyledRect {
-                                id: providerTab
-                                required property var modelData
-                                required property int index
-                                readonly property bool focused: index === root.focusedIndex
-                                readonly property string iconSource: root.providerIconSource(modelData.provider)
-                                readonly property bool genericIcon: iconSource === "" && root.providerIcon(modelData.provider) === "cloud"
+                                Item {
+                                    width: 20
+                                    height: 20
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    opacity: providerTab.focused ? 1 : 0.7
 
-                                height: 36
-                                width: tabContent.width + 2 * Theme.spacingM
-                                radius: height / 2
-                                color: focused ? Theme.withAlpha(Theme.primary, 0.16) : Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
-                                border.width: 1
-                                border.color: focused ? Theme.withAlpha(Theme.primary, 0.45) : Theme.outlineLight
-
-                                Row {
-                                    id: tabContent
-                                    anchors.centerIn: parent
-                                    spacing: Theme.spacingXS
-
-                                    Item {
-                                        width: 20
-                                        height: 20
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        opacity: providerTab.focused ? 1 : 0.7
-
-                                        Image {
-                                            anchors.fill: parent
-                                            visible: providerTab.iconSource !== ""
-                                            source: providerTab.iconSource
-                                            sourceSize.width: 40
-                                            sourceSize.height: 40
-                                            fillMode: Image.PreserveAspectFit
-                                            asynchronous: true
-                                        }
-
-                                        DankIcon {
-                                            anchors.centerIn: parent
-                                            visible: providerTab.iconSource === ""
-                                            name: root.providerIcon(providerTab.modelData.provider)
-                                            size: 18
-                                            color: providerTab.focused ? Theme.primary : Theme.surfaceVariantText
-                                        }
+                                    Image {
+                                        anchors.fill: parent
+                                        visible: providerTab.iconSource !== ""
+                                        source: providerTab.iconSource
+                                        sourceSize.width: 40
+                                        sourceSize.height: 40
+                                        fillMode: Image.PreserveAspectFit
+                                        asynchronous: true
                                     }
 
-                                    StyledText {
-                                        visible: providerTab.focused || providerTab.genericIcon
-                                        text: providerTab.modelData.provider
-                                        font.pixelSize: Theme.fontSizeMedium
-                                        font.weight: Font.Medium
-                                        color: providerTab.focused ? Theme.surfaceText : Theme.surfaceVariantText
-                                        anchors.verticalCenter: parent.verticalCenter
-                                    }
-
-                                    StyledText {
-                                        readonly property bool known: typeof providerTab.modelData.aggregate === "number"
-                                        text: known ? Math.round(providerTab.modelData.aggregate * 100) + "%" : "\u2014"
-                                        font.pixelSize: Theme.fontSizeMedium
-                                        font.weight: Font.Medium
-                                        font.features: ({ tnum: 1 })
-                                        color: root.dataLive && known ? root.ringColor(providerTab.modelData.aggregate) : Theme.surfaceVariantText
-                                        anchors.verticalCenter: parent.verticalCenter
+                                    DankIcon {
+                                        anchors.centerIn: parent
+                                        visible: providerTab.iconSource === ""
+                                        name: root.providerIcon(providerTab.modelData.provider)
+                                        size: 18
+                                        color: providerTab.focused ? Theme.primary : Theme.surfaceVariantText
                                     }
                                 }
 
-                                MouseArea {
-                                    anchors.fill: parent
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: root.focusPage(providerTab.index)
+                                StyledText {
+                                    text: providerTab.modelData.provider
+                                    width: Math.min(implicitWidth, 150)
+                                    elide: Text.ElideRight
+                                    font.pixelSize: Theme.fontSizeMedium
+                                    font.weight: Font.Medium
+                                    color: providerTab.focused ? Theme.surfaceText : Theme.surfaceVariantText
+                                    anchors.verticalCenter: parent.verticalCenter
                                 }
 
-                                Rectangle {
-                                    visible: providerTab.modelData.problem === true && !root.isUntracked(providerTab.modelData.provider)
-                                    width: 9
-                                    height: 9
-                                    radius: 4.5
-                                    color: Theme.error
-                                    border.width: 1
-                                    border.color: Theme.surfaceContainerHigh
-                                    anchors.top: parent.top
-                                    anchors.right: parent.right
-                                    anchors.topMargin: -1
-                                    anchors.rightMargin: -1
+                                StyledText {
+                                    readonly property bool known: typeof providerTab.modelData.aggregate === "number"
+                                    text: known ? Math.round(providerTab.modelData.aggregate * 100) + "%" : "\u2014"
+                                    font.pixelSize: Theme.fontSizeMedium
+                                    font.weight: Font.Medium
+                                    font.features: ({ tnum: 1 })
+                                    color: root.dataLive && known ? root.ringColor(providerTab.modelData.aggregate) : Theme.surfaceVariantText
+                                    anchors.verticalCenter: parent.verticalCenter
                                 }
                             }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.focusPage(providerTab.index)
+                                onEntered: popoutTip.show(providerTab.tip, providerTab, 0, 0, "bottom")
+                                onExited: popoutTip.hide()
+                            }
+
+                            Rectangle {
+                                anchors.fill: parent
+                                anchors.margins: 3
+                                radius: height / 2
+                                visible: providerTab.activeFocus
+                                color: "transparent"
+                                border.width: 2
+                                border.color: Theme.surfaceText
+                            }
+
+                            Rectangle {
+                                visible: providerTab.modelData.problem === true && !root.isUntracked(providerTab.modelData.provider)
+                                width: 9
+                                height: 9
+                                radius: 4.5
+                                color: Theme.error
+                                border.width: 1
+                                border.color: Theme.surfaceContainerHigh
+                                anchors.top: parent.top
+                                anchors.right: parent.right
+                                anchors.topMargin: -1
+                                anchors.rightMargin: -1
+                            }
                         }
-                    }
                     }
                 }
 
@@ -1118,7 +1223,6 @@ PluginComponent {
                     height: Math.max(0, root.popoutHeight - popoutRoot.headerHeight)
                     contentHeight: accountsColumn.height
                     clip: true
-                    opacity: root.dataLive || root.focusedIndex < 0 ? 1 : 0.6
 
                     Column {
                         id: accountsColumn
@@ -1167,11 +1271,66 @@ PluginComponent {
                                 width: parent.width - 2 * Theme.spacingM
                                 spacing: Theme.spacingM
 
-                                StyledText {
-                                    text: root.tr("Quota remaining")
-                                    font.pixelSize: Theme.fontSizeMedium
-                                    font.weight: Font.Medium
-                                    color: Theme.surfaceText
+                                Item {
+                                    width: parent.width
+                                    height: Math.max(quotaTitle.height, quotaBell.height)
+
+                                    Column {
+                                        id: quotaTitle
+                                        anchors.left: parent.left
+                                        anchors.right: quotaBell.left
+                                        anchors.rightMargin: Theme.spacingS
+                                        spacing: 2
+
+                                        Row {
+                                            width: parent.width
+                                            spacing: Theme.spacingS
+
+                                            Rectangle {
+                                                readonly property string accountColor: root.headlineAccount ? root.cardAccountColor(root.headlineAccount.authIndex) : ""
+                                                visible: accountColor !== ""
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                width: 8
+                                                height: 8
+                                                radius: 4
+                                                color: accountColor || "transparent"
+                                            }
+
+                                            StyledText {
+                                                width: Math.min(implicitWidth, parent.width - 16)
+                                                text: root.headlineAccount ? root.headlineAccount.label || root.headlineAccount.account : root.tr("Quota remaining")
+                                                elide: Text.ElideRight
+                                                font.pixelSize: Theme.fontSizeMedium
+                                                font.weight: Font.Medium
+                                                color: Theme.surfaceText
+                                            }
+                                        }
+
+                                        StyledText {
+                                            visible: root.headlineAccount !== null
+                                            width: parent.width
+                                            elide: Text.ElideRight
+                                            text: root.tr("Quota remaining") + (root.headlineAccount?.lastRequestAt
+                                                  ? " \u00b7 " + root.tr("last request") + " " + root.ago(root.headlineAccount.lastRequestAt) : "")
+                                            font.pixelSize: Theme.fontSizeSmall
+                                            color: Theme.surfaceVariantText
+                                        }
+                                    }
+
+                                    DankActionButton {
+                                        id: quotaBell
+                                        anchors.right: parent.right
+                                        anchors.top: parent.top
+                                        readonly property bool untracked: root.pillProvider !== null && root.isUntracked(root.pillProvider.provider)
+                                        visible: root.pillProvider !== null
+                                        buttonSize: 32
+                                        iconName: untracked ? "notifications_off" : "notifications"
+                                        iconColor: untracked ? Theme.surfaceVariantText : Theme.surfaceText
+                                        tooltipText: root.pillProvider ? (untracked ? root.tr("Unmute taskbar warnings for %1") : root.tr("Mute taskbar warnings for %1"))
+                                                                         .replace("%1", root.pillProvider.provider) : ""
+                                        onClicked: if (root.pillProvider) root.toggleTracking(root.pillProvider.provider)
+                                    }
+
                                 }
 
                                 StyledText {
@@ -1193,25 +1352,53 @@ PluginComponent {
                                         emphasis: index === root.limitingGroup
                                     }
                                 }
+
+                                Column {
+                                    visible: root.headlineAccount !== null
+                                    width: parent.width
+                                    spacing: 2
+
+                                    StyledText {
+                                        width: parent.width
+                                        wrapMode: Text.WordWrap
+                                        text: root.headlineAccount ? root.accountDetail(root.headlineAccount) : ""
+                                        font.pixelSize: Theme.fontSizeSmall
+                                        color: Theme.surfaceVariantText
+                                    }
+
+                                    StyledText {
+                                        visible: root.headlineAccount !== null && !!root.headlineAccount.error
+                                        width: parent.width
+                                        wrapMode: Text.WordWrap
+                                        text: root.headlineAccount ? root.headlineAccount.error || "" : ""
+                                        font.pixelSize: Theme.fontSizeSmall
+                                        color: Theme.surfaceVariantText
+                                    }
+                                }
                             }
                         }
 
                         StyledText {
-                            visible: root.pillProvider !== null && root.pillProvider.accounts.length > 0
+                            visible: root.otherAccounts.length > 0
                             x: Theme.spacingM
                             topPadding: Theme.spacingS
-                            text: root.tr("Accounts")
+                            text: root.headlineAccount ? root.tr("Other accounts") : root.tr("Accounts")
                             font.pixelSize: Theme.fontSizeSmall
                             font.weight: Font.Medium
                             color: Theme.surfaceVariantText
                         }
 
                         Repeater {
-                            model: root.pillProvider ? root.pillProvider.accounts : []
+                            id: accountRows
+                            model: root.otherAccounts.length
 
                             delegate: StyledRect {
                                 id: accountCard
-                                required property var modelData
+                                required property int index
+                                readonly property string focusKey: "account:" + expandKey
+                                readonly property Item focusTarget: accountHeader
+                                readonly property var modelData: root.otherAccounts[index]
+                                    ?? ({ account: "", authIndex: "", status: "active", groups: [], error: "", noQuota: false })
 
                                 readonly property bool healthy: !modelData.disabled && !modelData.unavailable
                                                                 && (modelData.status === "active" || modelData.supported === false)
@@ -1226,7 +1413,7 @@ PluginComponent {
                                 radius: Theme.cornerRadius
                                 color: Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
                                 border.width: healthy ? 0 : 1
-                                border.color: Theme.withAlpha(Theme.error, 0.5)
+                                border.color: Theme.withAlpha(root.liveColor(Theme.error), 0.5)
                                 clip: true
 
                                 Behavior on height {
@@ -1238,6 +1425,7 @@ PluginComponent {
 
                                 Item {
                                     id: accountHeader
+                                    readonly property bool rowHeader: true
                                     width: parent.width
                                     height: 44
                                     activeFocusOnTab: true
@@ -1248,9 +1436,10 @@ PluginComponent {
                                     Keys.onReturnPressed: root.toggleAccount(accountCard.expandKey, accountCard.expanded)
                                     Keys.onEnterPressed: root.toggleAccount(accountCard.expandKey, accountCard.expanded)
                                     onActiveFocusChanged: {
-                                        if (activeFocus)
-                                            activityScroll.contentY = Math.max(accountCard.y + height - activityScroll.height,
-                                                                               Math.min(accountCard.y, activityScroll.contentY));
+                                        if (activeFocus) {
+                                            popoutRoot.reveal(accountHeader);
+                                            root.focusKey = accountCard.focusKey;
+                                        }
                                     }
 
                                     Rectangle {
@@ -1270,32 +1459,19 @@ PluginComponent {
                                     }
 
                                     Rectangle {
-                                        visible: accountCard.accountColor !== ""
-                                        x: 5
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        width: 4
-                                        height: 22
-                                        radius: 2
-                                        color: accountCard.accountColor || "transparent"
-                                    }
-
-                                    Rectangle {
-                                        id: healthDot
+                                        id: accountDot
                                         anchors.left: parent.left
                                         anchors.leftMargin: Theme.spacingM
                                         anchors.verticalCenter: parent.verticalCenter
-                                        width: 8
+                                        width: accountCard.accountColor !== "" ? 8 : 0
                                         height: 8
                                         radius: 4
-                                        color: accountCard.modelData.disabled || accountCard.modelData.unavailable
-                                               || accountCard.modelData.supported === false
-                                               ? Theme.surfaceVariantText
-                                               : accountCard.modelData.status !== "active" ? Theme.error : Theme.success
+                                        color: accountCard.accountColor || "transparent"
                                     }
 
                                     StyledText {
-                                        anchors.left: healthDot.right
-                                        anchors.leftMargin: Theme.spacingS
+                                        anchors.left: accountDot.right
+                                        anchors.leftMargin: accountCard.accountColor !== "" ? Theme.spacingS : 0
                                         anchors.right: accountTags.left
                                         anchors.rightMargin: Theme.spacingS
                                         anchors.verticalCenter: parent.verticalCenter
@@ -1313,32 +1489,25 @@ PluginComponent {
                                         spacing: Theme.spacingS
 
                                         StyledText {
-                                            visible: accountCard.modelData.headline && root.pillProvider.accounts.length > 1
-                                            text: root.tr("shown above")
-                                            font.pixelSize: Theme.fontSizeSmall
-                                            color: Theme.primary
-                                        }
-
-                                        StyledText {
                                             visible: accountCard.modelData.supported !== false && accountCard.modelData.status !== "active"
                                                      && !accountCard.modelData.disabled && !accountCard.modelData.unavailable
                                             text: root.tr(accountCard.modelData.status)
                                             font.pixelSize: Theme.fontSizeSmall
-                                            color: Theme.error
+                                            color: root.liveColor(Theme.error)
                                         }
 
                                         StyledText {
                                             visible: accountCard.modelData.disabled
                                             text: root.tr("disabled")
                                             font.pixelSize: Theme.fontSizeSmall
-                                            color: Theme.error
+                                            color: root.liveColor(Theme.error)
                                         }
 
                                         StyledText {
                                             visible: accountCard.modelData.unavailable
                                             text: root.tr("unavailable")
                                             font.pixelSize: Theme.fontSizeSmall
-                                            color: Theme.warning
+                                            color: root.liveColor(Theme.warning)
                                         }
 
                                         StyledText {
@@ -1358,7 +1527,7 @@ PluginComponent {
                                         font.pixelSize: Theme.fontSizeSmall
                                         font.weight: Font.Medium
                                         font.features: ({ tnum: 1 })
-                                        color: root.ringColor(accountCard.worst)
+                                        color: root.liveColor(root.ringColor(accountCard.worst))
                                     }
 
                                     DankIcon {
@@ -1383,13 +1552,7 @@ PluginComponent {
                                     StyledText {
                                         width: parent.width
                                         wrapMode: Text.WordWrap
-                                        text: [
-                                            accountCard.modelData.status !== "active" && (accountCard.modelData.disabled || accountCard.modelData.unavailable
-                                                || accountCard.modelData.supported === false) ? root.tr(accountCard.modelData.status) : "",
-                                            accountCard.modelData.lastRequestAt ? root.tr("last request") + " " + root.ago(accountCard.modelData.lastRequestAt) : "",
-                                            root.formatCount(accountCard.modelData.success || 0) + " " + root.tr("ok"),
-                                            root.formatCount(accountCard.modelData.failed || 0) + " " + root.tr("failed")
-                                        ].filter(part => part !== "").join(" \u00b7 ")
+                                        text: root.accountDetail(accountCard.modelData)
                                         font.pixelSize: Theme.fontSizeSmall
                                         color: Theme.surfaceVariantText
                                     }
@@ -1399,7 +1562,7 @@ PluginComponent {
                                         width: parent.width
                                         text: accountCard.modelData.error
                                         font.pixelSize: Theme.fontSizeSmall
-                                        color: accountCard.healthy ? Theme.surfaceVariantText : Theme.error
+                                        color: accountCard.healthy ? Theme.surfaceVariantText : root.liveColor(Theme.error)
                                         wrapMode: Text.WordWrap
                                     }
 
@@ -1411,7 +1574,7 @@ PluginComponent {
                                     }
 
                                     Repeater {
-                                        model: accountCard.modelData.headline ? [] : accountCard.modelData.groups
+                                        model: accountCard.modelData.groups
 
                                         delegate: QuotaRow {
                                             required property var modelData
@@ -1433,79 +1596,76 @@ PluginComponent {
                             color: Theme.surfaceVariantText
                         }
 
-                        Flickable {
-                            id: accountScroll
+                        Flow {
+                            id: accountChips
                             visible: root.showAccountSplit
                             width: accountsColumn.width - 2 * Theme.spacingM
                             anchors.horizontalCenter: parent.horizontalCenter
-                            height: 32
-                            contentWidth: Math.max(width, accountChips.width)
-                            contentHeight: height
-                            flickableDirection: Flickable.HorizontalFlick
-                            boundsBehavior: Flickable.StopAtBounds
-                            clip: true
+                            spacing: Theme.spacingS
 
-                            Row {
-                                id: accountChips
-                                spacing: Theme.spacingS
+                            Repeater {
+                                id: chipRows
+                                model: root.accountChipList.length
 
-                                Repeater {
-                                    model: root.showAccountSplit ? [{ authIndex: "", label: root.tr("All accounts") }].concat(root.splitAccounts) : []
+                                delegate: StyledRect {
+                                    id: accountChip
+                                    required property int index
+                                    readonly property string focusKey: "chip:" + modelData.authIndex
+                                    readonly property Item focusTarget: accountChip
+                                    readonly property bool rowHeader: true
+                                    readonly property var modelData: root.accountChipList[index] ?? ({ authIndex: "", label: "", account: "" })
+                                    readonly property bool selected: modelData.authIndex === root.selectedAccount
+                                    readonly property string chipLabel: modelData.label || modelData.account
+                                    height: 32
+                                    width: chipContent.width + 2 * Theme.spacingS
+                                    radius: height / 2
+                                    color: selected ? Theme.withAlpha(Theme.primary, 0.16) : Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
+                                    border.width: activeFocus ? 2 : 1
+                                    border.color: activeFocus ? Theme.primary : selected ? Theme.withAlpha(Theme.primary, 0.45) : Theme.outlineLight
+                                    activeFocusOnTab: true
+                                    Accessible.role: Accessible.RadioButton
+                                    Accessible.name: chipLabel
+                                    Accessible.checkable: true
+                                    Accessible.checked: selected
+                                    Accessible.onPressAction: root.selectedAccount = modelData.authIndex
+                                    Keys.onSpacePressed: root.selectedAccount = modelData.authIndex
+                                    Keys.onReturnPressed: root.selectedAccount = modelData.authIndex
+                                    Keys.onEnterPressed: root.selectedAccount = modelData.authIndex
+                                    onActiveFocusChanged: {
+                                        if (activeFocus) {
+                                            root.focusKey = accountChip.focusKey;
+                                            popoutRoot.reveal(accountChip);
+                                        }
+                                    }
 
-                                    delegate: StyledRect {
-                                        id: accountChip
-                                        required property var modelData
-                                        readonly property bool selected: modelData.authIndex === root.selectedAccount
-                                        readonly property string chipLabel: modelData.label || modelData.account
-                                        height: accountScroll.height
-                                        width: chipContent.width + 2 * Theme.spacingS
-                                        radius: height / 2
-                                        color: selected ? Theme.withAlpha(Theme.primary, 0.16) : Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
-                                        border.width: activeFocus ? 2 : 1
-                                        border.color: activeFocus ? Theme.primary : selected ? Theme.withAlpha(Theme.primary, 0.45) : Theme.outlineLight
-                                        activeFocusOnTab: true
-                                        Accessible.role: Accessible.RadioButton
-                                        Accessible.name: chipLabel
-                                        Accessible.checkable: true
-                                        Accessible.checked: selected
-                                        Accessible.onPressAction: root.selectedAccount = modelData.authIndex
-                                        Keys.onSpacePressed: root.selectedAccount = modelData.authIndex
-                                        Keys.onReturnPressed: root.selectedAccount = modelData.authIndex
-                                        Keys.onEnterPressed: root.selectedAccount = modelData.authIndex
-                                        onActiveFocusChanged: {
-                                            if (activeFocus)
-                                                accountScroll.contentX = Math.max(x + width - accountScroll.width, Math.min(x, accountScroll.contentX));
+                                    Row {
+                                        id: chipContent
+                                        anchors.centerIn: parent
+                                        spacing: Theme.spacingXS
+
+                                        Rectangle {
+                                            visible: accountChip.modelData.authIndex !== ""
+                                            width: 8
+                                            height: width
+                                            radius: width / 2
+                                            color: root.accountColors[accountChip.modelData.authIndex] || "transparent"
+                                            anchors.verticalCenter: parent.verticalCenter
                                         }
 
-                                        Row {
-                                            id: chipContent
-                                            anchors.centerIn: parent
-                                            spacing: Theme.spacingXS
-
-                                            Rectangle {
-                                                visible: accountChip.modelData.authIndex !== ""
-                                                width: 8
-                                                height: width
-                                                radius: width / 2
-                                                color: root.accountColors[accountChip.modelData.authIndex] || "transparent"
-                                                anchors.verticalCenter: parent.verticalCenter
-                                            }
-
-                                            StyledText {
-                                                text: accountChip.chipLabel
-                                                elide: Text.ElideRight
-                                                width: Math.min(implicitWidth, 160)
-                                                font.pixelSize: Theme.fontSizeSmall
-                                                color: Theme.surfaceText
-                                                anchors.verticalCenter: parent.verticalCenter
-                                            }
+                                        StyledText {
+                                            text: accountChip.chipLabel
+                                            elide: Text.ElideRight
+                                            width: Math.min(implicitWidth, accountChips.width - 2 * Theme.spacingS - 12)
+                                            font.pixelSize: Theme.fontSizeSmall
+                                            color: Theme.surfaceText
+                                            anchors.verticalCenter: parent.verticalCenter
                                         }
+                                    }
 
-                                        MouseArea {
-                                            anchors.fill: parent
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: root.selectedAccount = accountChip.modelData.authIndex
-                                        }
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: root.selectedAccount = accountChip.modelData.authIndex
                                     }
                                 }
                             }
@@ -1533,8 +1693,15 @@ PluginComponent {
                                     color: Theme.surfaceText
                                 }
 
+                                StyledText {
+                                    visible: root.noUsage
+                                    text: root.usageStats[1].missing ? root.tr("no data") : root.tr("no usage in 7 days")
+                                    font.pixelSize: Theme.fontSizeSmall
+                                    color: Theme.surfaceVariantText
+                                }
+
                                 Repeater {
-                                    model: root.usageStats
+                                    model: root.noUsage ? [] : root.usageStats
 
                                     delegate: DetailLine {
                                         required property var modelData
@@ -1546,38 +1713,83 @@ PluginComponent {
                                     }
                                 }
 
+                                StyledText {
+                                    visible: root.hasBars
+                                    width: parent.width
+                                    horizontalAlignment: Text.AlignRight
+                                    topPadding: Theme.spacingXS
+                                    text: root.tr("top of scale") + " " + (root.usageHasTokens ? root.formatTokens(root.dayMax) : root.formatCount(root.dayMax))
+                                    font.pixelSize: Theme.fontSizeSmall - 1
+                                    color: Theme.surfaceVariantText
+                                }
+
                                 Row {
                                     id: barsRow
                                     visible: root.hasBars
                                     width: parent.width
-                                    topPadding: Theme.spacingXS
+                                    opacity: root.dataLive ? 1 : 0.5
 
                                     Repeater {
-                                        model: root.activity
+                                        id: dayRepeater
+                                        model: root.activity.length
 
                                         delegate: Column {
                                             id: dayColumn
-                                            required property var modelData
+                                            required property int index
+                                            readonly property var modelData: root.activity[index]
                                             readonly property var segments: root.daySegments(modelData)
                                             readonly property var bars: {
-                                                var heights = root.segmentHeights(segments.map(part => part.value), root.dayMax, 80, 1);
-                                                return segments.map((part, i) => ({ color: part.color, h: heights[i] })).reverse();
+                                                var shown = root.visibleSegments(segments);
+                                                var heights = root.segmentHeights(shown.map(part => part.value), root.dayMax, 80, 1);
+                                                return shown.map((part, i) => ({ color: part.color, h: heights[i] })).reverse();
                                             }
                                             readonly property bool isToday: modelData.date === root.todayDate
                                             readonly property bool missing: root.viewEntry(modelData).missing === true
+                                            readonly property bool focusedDay: dayPlot.activeFocus
                                             readonly property real barWidth: Math.min(28, width - Theme.spacingS)
                                             width: barsRow.width / root.activity.length
                                             spacing: 4
 
                                             Item {
+                                                id: dayPlot
                                                 width: parent.width
                                                 height: 80
+                                                activeFocusOnTab: true
+                                                Accessible.role: Accessible.Button
+                                                Accessible.name: dayLabel.text
+                                                Keys.onPressed: event => {
+                                                    var step = { [Qt.Key_Up]: -24, [Qt.Key_Down]: 24,
+                                                                 [Qt.Key_PageUp]: -dayScroll.height, [Qt.Key_PageDown]: dayScroll.height }[event.key];
+                                                    if (step === undefined || dayOverlay.day !== dayColumn)
+                                                        return;
+                                                    dayScroll.contentY = Math.max(0, Math.min(dayScroll.contentHeight - dayScroll.height, dayScroll.contentY + step));
+                                                    event.accepted = true;
+                                                }
+                                                onActiveFocusChanged: {
+                                                    if (activeFocus) {
+                                                        root.focusKey = "";
+                                                        popoutRoot.reveal(dayPlot);
+                                                        dayOverlay.day = dayColumn;
+                                                    } else if (dayOverlay.day === dayColumn)
+                                                        dayOverlay.day = null;
+                                                }
 
                                                 Rectangle {
                                                     anchors.fill: parent
                                                     radius: 4
-                                                    visible: dayOverlay.day === dayColumn
+                                                    visible: dayOverlay.day === dayColumn || dayPlot.activeFocus
                                                     color: Theme.withAlpha(Theme.surfaceText, 0.08)
+                                                    border.width: dayPlot.activeFocus ? 2 : 0
+                                                    border.color: Theme.primary
+                                                }
+
+                                                StyledText {
+                                                    visible: dayColumn.missing
+                                                    anchors.bottom: parent.bottom
+                                                    anchors.horizontalCenter: parent.horizontalCenter
+                                                    text: "\u2013"
+                                                    font.pixelSize: Theme.fontSizeSmall
+                                                    color: Theme.surfaceVariantText
                                                 }
 
                                                 Rectangle {
@@ -1615,15 +1827,16 @@ PluginComponent {
                                                     anchors.fill: parent
                                                     hoverEnabled: true
                                                     acceptedButtons: Qt.NoButton
-                                                    onEntered: dayOverlay.day = dayColumn
-                                                    onExited: {
-                                                        if (dayOverlay.day === dayColumn)
-                                                            dayOverlay.day = null;
+                                                    onEntered: {
+                                                        dayCloseTimer.stop();
+                                                        dayOverlay.day = dayColumn;
                                                     }
+                                                    onExited: dayCloseTimer.restart()
                                                 }
                                             }
 
                                             StyledText {
+                                                id: dayLabel
                                                 anchors.horizontalCenter: parent.horizontalCenter
                                                 text: {
                                                     var d = new Date(dayColumn.modelData.date + "T00:00:00");
@@ -1634,6 +1847,25 @@ PluginComponent {
                                                 color: dayColumn.isToday ? Theme.surfaceText : Theme.surfaceVariantText
                                             }
                                         }
+                                    }
+                                }
+
+                                Row {
+                                    visible: root.hasBars && root.hasUnattributed
+                                    spacing: Theme.spacingXS
+
+                                    Rectangle {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: 8
+                                        height: 8
+                                        radius: 1
+                                        color: root.otherColor
+                                    }
+
+                                    StyledText {
+                                        text: root.tr("unattributed: usage not reported per account")
+                                        font.pixelSize: Theme.fontSizeSmall - 1
+                                        color: Theme.surfaceVariantText
                                     }
                                 }
                             }
@@ -1655,34 +1887,66 @@ PluginComponent {
                                 spacing: Theme.spacingS
 
                                 StyledText {
-                                    text: root.tr("Models") + " \u00b7 " + root.usageStats[1].label
+                                    text: root.tr("Models") + " \u00b7 " + root.tr("7 days")
                                     font.pixelSize: Theme.fontSizeMedium
                                     font.weight: Font.Medium
                                     color: Theme.surfaceText
                                 }
 
                                 Repeater {
-                                    model: root.visibleFamilies
+                                    id: familyRows
+                                    model: root.visibleFamilies.length
 
                                     delegate: Column {
                                         id: familyRow
-                                        required property var modelData
+                                        required property int index
+                                        readonly property string focusKey: "family:" + modelData.family
+                                        readonly property Item focusTarget: familyHeader
+                                        readonly property var modelData: root.visibleFamilies[index]
+                                            ?? ({ family: "", versions: [{ name: "", ids: [] }], viewTotal: 0, color: "transparent", ids: [] })
                                         readonly property bool multi: modelData.versions.length > 1
                                         readonly property bool expanded: multi && root.expandedFamilies[modelData.family] === true
                                         width: modelsContent.width
                                         spacing: 4
 
                                         Item {
+                                            id: familyHeader
+                                            readonly property bool rowHeader: true
                                             width: parent.width
-                                            height: familyLine.height
+                                            height: familyLine.height + 4
+                                            activeFocusOnTab: familyRow.multi
+                                            Accessible.role: Accessible.Button
+                                            Accessible.name: familyLine.name
+                                            Keys.onSpacePressed: root.toggleFamily(familyRow.modelData.family)
+                                            Keys.onReturnPressed: root.toggleFamily(familyRow.modelData.family)
+                                            Keys.onEnterPressed: root.toggleFamily(familyRow.modelData.family)
+                                            onActiveFocusChanged: {
+                                                if (activeFocus) {
+                                                    popoutRoot.reveal(familyHeader);
+                                                    root.focusKey = familyRow.focusKey;
+                                                }
+                                            }
+
+                                            Rectangle {
+                                                anchors.fill: parent
+                                                anchors.margins: -2
+                                                radius: 4
+                                                visible: familyHeader.activeFocus
+                                                color: "transparent"
+                                                border.width: 2
+                                                border.color: Theme.primary
+                                            }
 
                                             DetailLine {
                                                 id: familyLine
                                                 anchors.left: parent.left
                                                 anchors.right: familyChevron.left
+                                                anchors.verticalCenter: parent.verticalCenter
                                                 name: familyRow.multi ? familyRow.modelData.family : familyRow.modelData.versions[0].name
                                                 value: root.formatTokens(familyRow.modelData.viewTotal)
                                                 strong: true
+                                                showSwatch: !root.showAccountSplit
+                                                swatch: familyRow.modelData.color
                                             }
 
                                             DankIcon {
@@ -1704,20 +1968,6 @@ PluginComponent {
                                             }
                                         }
 
-                                        Rectangle {
-                                            width: parent.width
-                                            height: 6
-                                            radius: 3
-                                            color: Theme.surfaceVariant
-
-                                            Rectangle {
-                                                width: parent.width * Math.min(1, familyRow.modelData.viewTotal / root.modelFamilies[0].total)
-                                                height: parent.height
-                                                radius: parent.radius
-                                                color: familyRow.modelData.color
-                                            }
-                                        }
-
                                         Column {
                                             visible: familyRow.expanded
                                             width: parent.width
@@ -1733,8 +1983,8 @@ PluginComponent {
 
                                                 delegate: DetailLine {
                                                     required property var modelData
-                                                    width: modelsContent.width - familyChevron.width
-                                                    indent: Theme.spacingM
+                                                    width: modelsContent.width - 16
+                                                    indent: root.showAccountSplit ? Theme.spacingM : Theme.spacingM + 8 + Theme.spacingXS
                                                     name: modelData.name
                                                     value: root.formatTokens(modelData.total)
                                                 }
@@ -1758,94 +2008,125 @@ PluginComponent {
                 }
             }
 
+            Timer {
+                id: dayCloseTimer
+                interval: 250
+                onTriggered: {
+                    if (dayOverlayHover.hovered)
+                        return;
+                    var focused = null;
+                    for (var i = 0; i < dayRepeater.count; i++) {
+                        if (dayRepeater.itemAt(i)?.focusedDay)
+                            focused = dayRepeater.itemAt(i);
+                    }
+                    dayOverlay.day = focused;
+                }
+            }
+
             StyledRect {
                 id: dayOverlay
                 property Item day: null
+                onDayChanged: dayScroll.contentY = 0
                 readonly property var detail: day ? root.dayRows(day.modelData) : null
+                readonly property real rowTop: popoutColumn.y + activityScroll.y - activityScroll.contentY
+                    + accountsColumn.y + activityCard.y + activityContent.y + barsRow.y
+                readonly property real rowBottom: rowTop + barsRow.height
+                readonly property real viewTop: popoutColumn.y + activityScroll.y
+                readonly property real room: Math.max(popoutRoot.height - rowBottom, rowTop) - Theme.spacingS
                 readonly property var position: {
                     if (!day)
                         return { x: 0, y: 0 };
                     var left = day.mapToItem(popoutRoot, 0, 0).x;
-                    var rowBottom = popoutColumn.y + activityScroll.y - activityScroll.contentY
-                        + accountsColumn.y + activityCard.y + activityContent.y + barsRow.y + barsRow.height;
-                    return root.dayOverlayPosition(left, left + day.width, rowBottom, width, height,
+                    return root.dayOverlayPosition(left, left + day.width, rowTop, rowBottom, width, height,
                                                    popoutRoot.width, popoutRoot.height, Theme.spacingS, Theme.spacingM);
                 }
 
                 z: 10
-                visible: !!day && day.visible
+                visible: !!day && day.visible && rowBottom > viewTop && rowTop < viewTop + activityScroll.height
                 opacity: root.dataLive ? 1 : 0.6
                 x: position.x
                 y: position.y
                 width: Math.min(popoutRoot.width - 2 * Theme.spacingM, 280)
-                height: dayContents.height + 2 * Theme.spacingS
+                height: Math.max(0, Math.min(dayContents.height + 2 * Theme.spacingS, room))
+
+                HoverHandler {
+                    id: dayOverlayHover
+                    onHoveredChanged: if (!hovered) dayCloseTimer.restart()
+                }
                 radius: Theme.cornerRadius
                 color: Theme.surfaceContainerHighest ?? Theme.surfaceContainerHigh
                 border.width: 1
                 border.color: Theme.outline
 
-                Column {
-                    id: dayContents
-                    x: Theme.spacingS
-                    y: Theme.spacingS
-                    width: parent.width - 2 * Theme.spacingS
-                    spacing: Theme.spacingXS
+                Flickable {
+                    id: dayScroll
+                    anchors.fill: parent
+                    anchors.margins: Theme.spacingS
+                    contentHeight: dayContents.height
+                    boundsBehavior: Flickable.StopAtBounds
+                    clip: true
 
-                    DetailLine {
+                    Column {
+                        id: dayContents
                         width: parent.width
-                        strong: true
-                        name: {
-                            var date = new Date((dayOverlay.detail?.date || "") + "T00:00:00");
-                            return isNaN(date.getTime()) ? "" : date.toLocaleDateString(Qt.locale(), "ddd d MMM");
-                        }
-                        value: root.usageHasTokens && !dayOverlay.detail?.missing ? root.formatTokens(dayOverlay.detail?.total || 0) + " " + root.tr("tokens") : ""
-                    }
+                        spacing: Theme.spacingXS
 
-                    Repeater {
-                        model: dayOverlay.detail?.groups ?? []
-
-                        delegate: Column {
-                            id: dayGroup
-                            required property var modelData
-                            readonly property bool named: modelData.name !== ""
-                            width: dayContents.width
-                            topPadding: named ? Theme.spacingXS : 0
-                            spacing: 2
-
-                            DetailLine {
-                                visible: dayGroup.named
-                                width: parent.width
-                                strong: true
-                                showSwatch: true
-                                roundSwatch: true
-                                swatch: dayGroup.modelData.color || "transparent"
-                                name: dayGroup.modelData.name
-                                value: root.formatTokens(dayGroup.modelData.tokens)
+                        DetailLine {
+                            width: parent.width
+                            strong: true
+                            name: {
+                                var date = new Date((dayOverlay.detail?.date || "") + "T00:00:00");
+                                return isNaN(date.getTime()) ? "" : date.toLocaleDateString(Qt.locale(), "ddd d MMM");
                             }
+                            value: root.usageHasTokens && !dayOverlay.detail?.missing ? root.formatTokens(dayOverlay.detail?.total || 0) + " " + root.tr("tokens") : ""
+                        }
 
-                            Repeater {
-                                model: dayGroup.modelData.models
+                        Repeater {
+                            model: dayOverlay.detail?.groups ?? []
 
-                                delegate: DetailLine {
-                                    required property var modelData
-                                    width: dayGroup.width
-                                    indent: dayGroup.named ? Theme.spacingM : 0
-                                    showSwatch: !dayGroup.named
-                                    swatch: modelData.color
-                                    name: modelData.name
-                                    value: root.formatTokens(modelData.tokens)
+                            delegate: Column {
+                                id: dayGroup
+                                required property var modelData
+                                readonly property bool named: modelData.name !== ""
+                                width: dayContents.width
+                                topPadding: named ? Theme.spacingXS : 0
+                                spacing: 2
+
+                                DetailLine {
+                                    visible: dayGroup.named
+                                    width: parent.width
+                                    strong: true
+                                    showSwatch: true
+                                    roundSwatch: true
+                                    swatch: dayGroup.modelData.color || "transparent"
+                                    name: dayGroup.modelData.name
+                                    value: root.formatTokens(dayGroup.modelData.tokens)
+                                }
+
+                                Repeater {
+                                    model: dayGroup.modelData.models
+
+                                    delegate: DetailLine {
+                                        required property var modelData
+                                        width: dayGroup.width
+                                        indent: dayGroup.named ? Theme.spacingM : 0
+                                        showSwatch: !dayGroup.named
+                                        swatch: modelData.color
+                                        name: modelData.name
+                                        value: root.formatTokens(modelData.tokens)
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    StyledText {
-                        topPadding: Theme.spacingXS
-                        text: dayOverlay.detail?.missing ? root.tr("no data")
-                              : dayOverlay.detail ? root.formatCount(dayOverlay.detail.requests) + " " + root.tr("requests")
-                              + (dayOverlay.detail.failed > 0 ? " \u00b7 " + root.formatCount(dayOverlay.detail.failed) + " " + root.tr("failed") : "") : ""
-                        font.pixelSize: Theme.fontSizeSmall
-                        color: Theme.surfaceVariantText
+                        StyledText {
+                            topPadding: Theme.spacingXS
+                            text: dayOverlay.detail?.missing ? root.tr("no data")
+                                  : dayOverlay.detail ? root.formatCount(dayOverlay.detail.requests) + " " + root.tr("requests")
+                                  + (dayOverlay.detail.failed > 0 ? " \u00b7 " + root.formatCount(dayOverlay.detail.failed) + " " + root.tr("failed") : "") : ""
+                            font.pixelSize: Theme.fontSizeSmall
+                            color: Theme.surfaceVariantText
+                        }
                     }
                 }
             }

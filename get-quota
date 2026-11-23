@@ -161,7 +161,7 @@ activity=$(jq -s '
     | from_entries' "$HIST_FILE" 2>/dev/null) || activity="{}"
 
 jq -c --arg source "$source_id" --arg contractLatest "${contract_latest:-}" --argjson contract "$CONTRACT" --argjson activity "$activity" '
-    def live: (.disabled | not) and (.unavailable | not) and .supported
+    def live: (.disabled | not) and (.unavailable | not) and .supported and .status == "active"
               and ((.groups // []) | length > 0);
     def bottleneck: [.groups[].remainingFraction] | min;
     # ISO 8601 with optional fraction and offset -> epoch seconds; strings in
