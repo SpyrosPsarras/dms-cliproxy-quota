@@ -90,17 +90,19 @@ and must not copy that mapping.
 **Popout — a carousel, one page per provider.** Arrows at the top navigate; the page
 order is the server's order. Each page:
 
-- Quota remaining: one row per group of the aggregate's account (worst group
-  of the live account that took the newest request, or the worst live account
-  when none reports a request time), reset countdown from `resetTime`, a bar.
-  The group equal to the aggregate is bold. Pace shows only when over pace.
-- Account list, one line each, expandable: every account, including disabled
+- Quota remaining: the aggregate's account (the live account that took the
+  newest request, or the worst live account when none reports a request time)
+  by name, with its `status` when not active, `lastRequestAt`,
+  `success`/`failed` and `error`; then one row per group of that account,
+  reset countdown from `resetTime`, a bar. The group equal to the aggregate is
+  bold. Pace shows only when over pace.
+- Account list ("Other accounts" when the quota card names one), one line
+  each, expandable: every account except the one on the quota card, including disabled
   ones labelled as disabled. The line: health dot, masked label, state tags,
   lowest remaining percentage. Expanded: `status` when not active,
   `lastRequestAt`, `success`/`failed` counters, `error`, per-group bars.
-  Disabled and unavailable accounts render but never feed the aggregate. With
-  more than one account the account behind the aggregate is tagged "shown
-  above". Unhealthy accounts get a red border; account colour is a small bar.
+  Disabled and unavailable accounts render but never feed the aggregate.
+  Unhealthy accounts get a red border; account colour is a small bar.
 - Usage: today's and the week's tokens and requests, tokens per day over the
   last seven calendar days, tokens per model. When per-account tokens are
   available for a provider with multiple accounts, day bars stack by account

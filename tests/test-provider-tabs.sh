@@ -6,19 +6,19 @@ const fs = require('fs');
 const vm = require('vm');
 const assert = require('assert');
 const source = fs.readFileSync(process.argv[2], 'utf8');
-const body = '(function() {' + source.match(/function revealFocused\(\) \{([\s\S]*?)\n                        \}/)[1] + '})()';
-const context = {root: {focusedIndex: 7}, providerRow: {x: 0},
-    providerTabs: {itemAt: () => ({x: 560, width: 140})},
-    contentWidth: 700, width: 388, contentX: 0};
-vm.runInNewContext(body, context);
-assert.equal(context.contentX, 312);
-context.providerTabs.itemAt = () => ({x: 0, width: 140});
-vm.runInNewContext(body, context);
-assert.equal(context.contentX, 0);
-context.providerRow.x = 44;
-context.contentWidth = 388;
-vm.runInNewContext(body, context);
-assert.equal(context.contentX, 0);
+const binding = name => source.match(new RegExp(`^    readonly property var ${name}: (.*)$`, 'm'))[1];
+const accounts = [{account: 'a@x', headline: false}, {account: 'b@x', headline: true}, {account: 'c@x', headline: false}];
+assert.equal(vm.runInNewContext(binding('headlineAccount'), {pillProvider: {accounts}}).account, 'b@x', 'the quota card names the account behind it');
+assert.deepEqual(vm.runInNewContext(binding('otherAccounts'), {pillProvider: {accounts}}).map(a => a.account), ['a@x', 'c@x'],
+    'that account is not repeated in the list');
+assert.equal(vm.runInNewContext(binding('headlineAccount'), {pillProvider: {accounts: [{account: 'a@x', headline: false}]}}), null,
+    'no live account, no name on the quota card');
+const detailFn = source.match(/^    function accountDetail\(account\) \{[\s\S]*?\n    \}/m)[0];
+const detailCtx = {tr: k => k, ago: () => '2m ago', formatCount: n => String(n)};
+vm.runInNewContext(detailFn + '; this.accountDetail = accountDetail;', detailCtx);
+assert.equal(detailCtx.accountDetail({status: 'active', lastRequestAt: 't', success: 5, failed: 1}), 'last request 2m ago · 5 ok · 1 failed');
+assert.equal(detailCtx.accountDetail({status: 'error', headline: true, success: 0, failed: 0}), 'error · 0 ok · 0 failed',
+    'a non-active status shows on the quota card, which has no tag row');
 const expanded = source.match(/^\s+readonly property bool expanded: (root\.expandedAccounts.*)/m)[1];
 const card = (error, expandedAccounts = {}) => vm.runInNewContext(expanded, {root: {expandedAccounts}, expandKey: 'a1', modelData: {error}});
 assert.equal(card('provider API failed: 429'), true, 'an account with an error opens');
@@ -44,5 +44,5 @@ assert.equal(root.focusedProvider, 'codex', 'a request on another provider moves
 root.visibleProviders = [];
 run();
 assert.equal(root.focusedProvider, 'codex', 'no data keeps the focus');
-console.log('PASS: tabs scroll both directions, short rows stay centered, quota errors expand, focus follows the active provider');
+console.log('PASS: the quota card names its account, the list holds the others, quota errors expand, focus follows the active provider');
 NODE

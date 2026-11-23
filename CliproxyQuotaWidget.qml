@@ -272,6 +272,17 @@ PluginComponent {
         });
         return groups.length > 1 ? lowest : -1;
     }
+    readonly property var headlineAccount: pillProvider?.accounts?.find(account => account.headline) ?? null
+    readonly property var otherAccounts: (pillProvider?.accounts || []).filter(account => !account.headline)
+    function accountDetail(account) {
+        return [
+            account.status !== "active" && (account.disabled || account.unavailable || account.supported === false || account.headline)
+                ? tr(account.status) : "",
+            account.lastRequestAt ? tr("last request") + " " + ago(account.lastRequestAt) : "",
+            formatCount(account.success || 0) + " " + tr("ok"),
+            formatCount(account.failed || 0) + " " + tr("failed")
+        ].filter(part => part !== "").join(" \u00b7 ");
+    }
     readonly property bool dataLive: quota !== null && quota.status === "ok" && quota.stale !== true
     readonly property var trackedProviders: visibleProviders.filter(p => !isUntracked(p.provider))
     readonly property bool allProblem: trackedProviders.length > 0 && trackedProviders.every(p => p.problem === true)
@@ -959,136 +970,100 @@ PluginComponent {
                     }
                 }
 
-                Item {
+                Flow {
                     id: navTabs
-                    width: parent.width
-                    height: 44
+                    x: Theme.spacingM
+                    width: parent.width - 2 * Theme.spacingM
+                    spacing: Theme.spacingS
                     visible: root.focusedIndex >= 0
                     opacity: root.dataLive ? 1 : 0.6
 
-                    Flickable {
-                        id: providerScroll
-                        anchors.fill: parent
-                        anchors.leftMargin: Theme.spacingM
-                        anchors.rightMargin: Theme.spacingM
-                        contentWidth: Math.max(width, providerRow.width)
-                        contentHeight: height
-                        flickableDirection: Flickable.HorizontalFlick
-                        boundsBehavior: Flickable.StopAtBounds
-                        clip: true
+                    Repeater {
+                        model: root.visibleProviders
 
-                        function revealFocused() {
-                            var tab = providerTabs.itemAt(root.focusedIndex);
-                            if (!tab) return;
-                            var left = providerRow.x + tab.x;
-                            var right = left + tab.width;
-                            contentX = Math.max(0, Math.min(contentWidth - width,
-                                left < contentX ? left : right > contentX + width ? right - width : contentX));
-                        }
-                        onWidthChanged: Qt.callLater(revealFocused)
-                        Connections {
-                            target: root
-                            function onFocusedIndexChanged() { Qt.callLater(providerScroll.revealFocused); }
-                        }
+                        delegate: StyledRect {
+                            id: providerTab
+                            required property var modelData
+                            required property int index
+                            readonly property bool focused: index === root.focusedIndex
+                            readonly property string iconSource: root.providerIconSource(modelData.provider)
 
-                    Row {
-                        id: providerRow
-                        x: Math.max(0, (providerScroll.width - width) / 2)
-                        anchors.verticalCenter: parent.verticalCenter
-                        onWidthChanged: Qt.callLater(providerScroll.revealFocused)
-                        spacing: Theme.spacingS
+                            height: 36
+                            width: tabContent.width + 2 * Theme.spacingM
+                            radius: height / 2
+                            color: focused ? Theme.withAlpha(Theme.primary, 0.16) : Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
+                            border.width: 1
+                            border.color: focused ? Theme.withAlpha(Theme.primary, 0.45) : Theme.outlineLight
 
-                        Repeater {
-                            id: providerTabs
-                            model: root.visibleProviders
+                            Row {
+                                id: tabContent
+                                anchors.centerIn: parent
+                                spacing: Theme.spacingXS
 
-                            delegate: StyledRect {
-                                id: providerTab
-                                required property var modelData
-                                required property int index
-                                readonly property bool focused: index === root.focusedIndex
-                                readonly property string iconSource: root.providerIconSource(modelData.provider)
-                                readonly property bool genericIcon: iconSource === "" && root.providerIcon(modelData.provider) === "cloud"
+                                Item {
+                                    width: 20
+                                    height: 20
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    opacity: providerTab.focused ? 1 : 0.7
 
-                                height: 36
-                                width: tabContent.width + 2 * Theme.spacingM
-                                radius: height / 2
-                                color: focused ? Theme.withAlpha(Theme.primary, 0.16) : Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
-                                border.width: 1
-                                border.color: focused ? Theme.withAlpha(Theme.primary, 0.45) : Theme.outlineLight
-
-                                Row {
-                                    id: tabContent
-                                    anchors.centerIn: parent
-                                    spacing: Theme.spacingXS
-
-                                    Item {
-                                        width: 20
-                                        height: 20
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        opacity: providerTab.focused ? 1 : 0.7
-
-                                        Image {
-                                            anchors.fill: parent
-                                            visible: providerTab.iconSource !== ""
-                                            source: providerTab.iconSource
-                                            sourceSize.width: 40
-                                            sourceSize.height: 40
-                                            fillMode: Image.PreserveAspectFit
-                                            asynchronous: true
-                                        }
-
-                                        DankIcon {
-                                            anchors.centerIn: parent
-                                            visible: providerTab.iconSource === ""
-                                            name: root.providerIcon(providerTab.modelData.provider)
-                                            size: 18
-                                            color: providerTab.focused ? Theme.primary : Theme.surfaceVariantText
-                                        }
+                                    Image {
+                                        anchors.fill: parent
+                                        visible: providerTab.iconSource !== ""
+                                        source: providerTab.iconSource
+                                        sourceSize.width: 40
+                                        sourceSize.height: 40
+                                        fillMode: Image.PreserveAspectFit
+                                        asynchronous: true
                                     }
 
-                                    StyledText {
-                                        visible: providerTab.focused || providerTab.genericIcon
-                                        text: providerTab.modelData.provider
-                                        font.pixelSize: Theme.fontSizeMedium
-                                        font.weight: Font.Medium
-                                        color: providerTab.focused ? Theme.surfaceText : Theme.surfaceVariantText
-                                        anchors.verticalCenter: parent.verticalCenter
-                                    }
-
-                                    StyledText {
-                                        readonly property bool known: typeof providerTab.modelData.aggregate === "number"
-                                        text: known ? Math.round(providerTab.modelData.aggregate * 100) + "%" : "\u2014"
-                                        font.pixelSize: Theme.fontSizeMedium
-                                        font.weight: Font.Medium
-                                        font.features: ({ tnum: 1 })
-                                        color: root.dataLive && known ? root.ringColor(providerTab.modelData.aggregate) : Theme.surfaceVariantText
-                                        anchors.verticalCenter: parent.verticalCenter
+                                    DankIcon {
+                                        anchors.centerIn: parent
+                                        visible: providerTab.iconSource === ""
+                                        name: root.providerIcon(providerTab.modelData.provider)
+                                        size: 18
+                                        color: providerTab.focused ? Theme.primary : Theme.surfaceVariantText
                                     }
                                 }
 
-                                MouseArea {
-                                    anchors.fill: parent
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: root.focusPage(providerTab.index)
+                                StyledText {
+                                    text: providerTab.modelData.provider
+                                    font.pixelSize: Theme.fontSizeMedium
+                                    font.weight: Font.Medium
+                                    color: providerTab.focused ? Theme.surfaceText : Theme.surfaceVariantText
+                                    anchors.verticalCenter: parent.verticalCenter
                                 }
 
-                                Rectangle {
-                                    visible: providerTab.modelData.problem === true && !root.isUntracked(providerTab.modelData.provider)
-                                    width: 9
-                                    height: 9
-                                    radius: 4.5
-                                    color: Theme.error
-                                    border.width: 1
-                                    border.color: Theme.surfaceContainerHigh
-                                    anchors.top: parent.top
-                                    anchors.right: parent.right
-                                    anchors.topMargin: -1
-                                    anchors.rightMargin: -1
+                                StyledText {
+                                    readonly property bool known: typeof providerTab.modelData.aggregate === "number"
+                                    text: known ? Math.round(providerTab.modelData.aggregate * 100) + "%" : "\u2014"
+                                    font.pixelSize: Theme.fontSizeMedium
+                                    font.weight: Font.Medium
+                                    font.features: ({ tnum: 1 })
+                                    color: root.dataLive && known ? root.ringColor(providerTab.modelData.aggregate) : Theme.surfaceVariantText
+                                    anchors.verticalCenter: parent.verticalCenter
                                 }
                             }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.focusPage(providerTab.index)
+                            }
+
+                            Rectangle {
+                                visible: providerTab.modelData.problem === true && !root.isUntracked(providerTab.modelData.provider)
+                                width: 9
+                                height: 9
+                                radius: 4.5
+                                color: Theme.error
+                                border.width: 1
+                                border.color: Theme.surfaceContainerHigh
+                                anchors.top: parent.top
+                                anchors.right: parent.right
+                                anchors.topMargin: -1
+                                anchors.rightMargin: -1
+                            }
                         }
-                    }
                     }
                 }
 
@@ -1167,11 +1142,58 @@ PluginComponent {
                                 width: parent.width - 2 * Theme.spacingM
                                 spacing: Theme.spacingM
 
-                                StyledText {
-                                    text: root.tr("Quota remaining")
-                                    font.pixelSize: Theme.fontSizeMedium
-                                    font.weight: Font.Medium
-                                    color: Theme.surfaceText
+                                Column {
+                                    width: parent.width
+                                    spacing: 2
+
+                                    StyledText {
+                                        text: root.tr("Quota remaining")
+                                        font.pixelSize: Theme.fontSizeMedium
+                                        font.weight: Font.Medium
+                                        color: Theme.surfaceText
+                                    }
+
+                                    Row {
+                                        visible: root.headlineAccount !== null
+                                        width: parent.width
+                                        spacing: Theme.spacingXS
+
+                                        Rectangle {
+                                            readonly property string accountColor: root.headlineAccount ? root.cardAccountColor(root.headlineAccount.authIndex) : ""
+                                            visible: accountColor !== ""
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            width: 8
+                                            height: 8
+                                            radius: 4
+                                            color: accountColor || "transparent"
+                                        }
+
+                                        StyledText {
+                                            width: Math.min(implicitWidth, parent.width - 12)
+                                            text: root.headlineAccount ? root.headlineAccount.label || root.headlineAccount.account : ""
+                                            elide: Text.ElideRight
+                                            font.pixelSize: Theme.fontSizeSmall
+                                            color: Theme.surfaceText
+                                        }
+                                    }
+
+                                    StyledText {
+                                        visible: root.headlineAccount !== null
+                                        width: parent.width
+                                        wrapMode: Text.WordWrap
+                                        text: root.headlineAccount ? root.accountDetail(root.headlineAccount) : ""
+                                        font.pixelSize: Theme.fontSizeSmall
+                                        color: Theme.surfaceVariantText
+                                    }
+
+                                    StyledText {
+                                        visible: root.headlineAccount !== null && !!root.headlineAccount.error
+                                        width: parent.width
+                                        wrapMode: Text.WordWrap
+                                        text: root.headlineAccount ? root.headlineAccount.error || "" : ""
+                                        font.pixelSize: Theme.fontSizeSmall
+                                        color: Theme.surfaceVariantText
+                                    }
                                 }
 
                                 StyledText {
@@ -1197,17 +1219,17 @@ PluginComponent {
                         }
 
                         StyledText {
-                            visible: root.pillProvider !== null && root.pillProvider.accounts.length > 0
+                            visible: root.otherAccounts.length > 0
                             x: Theme.spacingM
                             topPadding: Theme.spacingS
-                            text: root.tr("Accounts")
+                            text: root.headlineAccount ? root.tr("Other accounts") : root.tr("Accounts")
                             font.pixelSize: Theme.fontSizeSmall
                             font.weight: Font.Medium
                             color: Theme.surfaceVariantText
                         }
 
                         Repeater {
-                            model: root.pillProvider ? root.pillProvider.accounts : []
+                            model: root.otherAccounts
 
                             delegate: StyledRect {
                                 id: accountCard
@@ -1313,13 +1335,6 @@ PluginComponent {
                                         spacing: Theme.spacingS
 
                                         StyledText {
-                                            visible: accountCard.modelData.headline && root.pillProvider.accounts.length > 1
-                                            text: root.tr("shown above")
-                                            font.pixelSize: Theme.fontSizeSmall
-                                            color: Theme.primary
-                                        }
-
-                                        StyledText {
                                             visible: accountCard.modelData.supported !== false && accountCard.modelData.status !== "active"
                                                      && !accountCard.modelData.disabled && !accountCard.modelData.unavailable
                                             text: root.tr(accountCard.modelData.status)
@@ -1383,13 +1398,7 @@ PluginComponent {
                                     StyledText {
                                         width: parent.width
                                         wrapMode: Text.WordWrap
-                                        text: [
-                                            accountCard.modelData.status !== "active" && (accountCard.modelData.disabled || accountCard.modelData.unavailable
-                                                || accountCard.modelData.supported === false) ? root.tr(accountCard.modelData.status) : "",
-                                            accountCard.modelData.lastRequestAt ? root.tr("last request") + " " + root.ago(accountCard.modelData.lastRequestAt) : "",
-                                            root.formatCount(accountCard.modelData.success || 0) + " " + root.tr("ok"),
-                                            root.formatCount(accountCard.modelData.failed || 0) + " " + root.tr("failed")
-                                        ].filter(part => part !== "").join(" \u00b7 ")
+                                        text: root.accountDetail(accountCard.modelData)
                                         font.pixelSize: Theme.fontSizeSmall
                                         color: Theme.surfaceVariantText
                                     }
@@ -1411,7 +1420,7 @@ PluginComponent {
                                     }
 
                                     Repeater {
-                                        model: accountCard.modelData.headline ? [] : accountCard.modelData.groups
+                                        model: accountCard.modelData.groups
 
                                         delegate: QuotaRow {
                                             required property var modelData

@@ -42,12 +42,15 @@ freedesktop Secret Service vault.
   bar.
 - **Popout** — a status line (loading, refreshing, updated, stale, or the
   fetch error) with the taskbar-warnings bell and a refresh button, then one
-  tab per provider with its remaining percentage; click a tab or press ←/→.
+  tab per provider with its icon, name and remaining percentage, wrapping to
+  a second row when they do not fit; click a tab or press ←/→.
   Each provider page reads top to bottom:
-  - **Quota remaining** — one row per quota group with its reset countdown
-    and a bar. The group that sets the taskbar number is in bold. A pace
-    warning appears only when a group is being used faster than its window.
-  - **Accounts** — one line per account: health dot, name, state tags and its
+  - **Quota remaining** — the account these numbers come from, with its last
+    request, ok/failed counters and any error, then one row per quota group
+    with its reset countdown and a bar. The group that sets the taskbar
+    number is in bold. A pace warning appears only when a group is being used
+    faster than its window.
+  - **Other accounts** — one line per remaining account: health dot, name, state tags and its
     lowest remaining percentage. Click to see last request, ok/failed
     counters, any error and per-group bars. Accounts with an error open by
     default; what you open or close stays that way across refreshes.
