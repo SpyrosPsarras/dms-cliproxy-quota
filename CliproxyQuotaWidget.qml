@@ -527,12 +527,16 @@ PluginComponent {
     }
     readonly property real dayMax: activity.reduce((max, entry) => Math.max(max, dayValue(entry)), 0)
     readonly property bool noUsage: usageStats[1].tokens === 0 && usageStats[1].requests === 0
-    readonly property bool hasUnattributed: activity.some(entry => daySegments(entry).some(part => part.color === otherColor))
+                                    && (usageStats[1].recorded === 0 || usageStats[1].recorded === activity.length)
+    readonly property bool hasUnattributed: activity.some(entry => visibleSegments(daySegments(entry)).some(part => part.color === otherColor))
     // Slivers under 2% of the scale read as rendering faults; the day detail keeps them.
     function visibleSegments(segments) {
         var shown = segments.filter(part => part.value >= 0.02 * dayMax);
-        return shown.length > 0 || segments.length === 0 ? shown
-            : [segments.reduce((max, part) => part.value > max.value ? part : max)];
+        if (shown.length === 0 && segments.length > 0)
+            shown = [segments.reduce((max, part) => part.value > max.value ? part : max)];
+        var total = segments.reduce((sum, part) => sum + part.value, 0);
+        var kept = shown.reduce((sum, part) => sum + part.value, 0);
+        return shown.map(part => ({ value: part.value * total / kept, color: part.color }));
     }
     readonly property bool hasBars: dayMax > 0 && activity.some(entry => daySegments(entry).length > 0)
 
@@ -609,6 +613,7 @@ PluginComponent {
                 today.requests = e.requests + e.failed;
             }
         }
+        week.recorded = recorded;
         if (recorded > 0 && recorded < viewActivity.length)
             week.label = tr("7 days") + " \u00b7 " + tr("%1 recorded").replace("%1", recorded);
         return [today, week];
@@ -936,6 +941,11 @@ PluginComponent {
                 }
             }
 
+            function reveal(item) {
+                var top = item.mapToItem(accountsColumn, 0, 0).y;
+                activityScroll.contentY = Math.max(0, Math.min(top, Math.max(activityScroll.contentY, top + item.height - activityScroll.height)));
+            }
+
             Connections {
                 target: root
                 function onFocusedIndexChanged() {
@@ -1037,7 +1047,7 @@ PluginComponent {
                             radius: height / 2
                             color: focused ? Theme.withAlpha(Theme.primary, 0.16) : Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
                             border.width: focused || activeFocus ? 2 : 1
-                            border.color: focused || activeFocus ? Theme.primary : Theme.outlineLight
+                            border.color: focused ? Theme.primary : activeFocus ? Theme.surfaceText : Theme.outlineLight
                             readonly property string tip: root.tabTooltip(modelData)
                             activeFocusOnTab: true
                             Accessible.role: Accessible.PageTab
@@ -1355,11 +1365,7 @@ PluginComponent {
                                     Keys.onSpacePressed: root.toggleAccount(accountCard.expandKey, accountCard.expanded)
                                     Keys.onReturnPressed: root.toggleAccount(accountCard.expandKey, accountCard.expanded)
                                     Keys.onEnterPressed: root.toggleAccount(accountCard.expandKey, accountCard.expanded)
-                                    onActiveFocusChanged: {
-                                        if (activeFocus)
-                                            activityScroll.contentY = Math.max(accountCard.y + height - activityScroll.height,
-                                                                               Math.min(accountCard.y, activityScroll.contentY));
-                                    }
+                                    onActiveFocusChanged: if (activeFocus) popoutRoot.reveal(accountHeader)
 
                                     Rectangle {
                                         anchors.fill: parent
@@ -1651,6 +1657,7 @@ PluginComponent {
                                             }
                                             readonly property bool isToday: modelData.date === root.todayDate
                                             readonly property bool missing: root.viewEntry(modelData).missing === true
+                                            readonly property bool focusedDay: dayPlot.activeFocus
                                             readonly property real barWidth: Math.min(28, width - Theme.spacingS)
                                             width: barsRow.width / root.activity.length
                                             spacing: 4
@@ -1663,9 +1670,10 @@ PluginComponent {
                                                 Accessible.role: Accessible.Button
                                                 Accessible.name: dayLabel.text
                                                 onActiveFocusChanged: {
-                                                    if (activeFocus)
+                                                    if (activeFocus) {
+                                                        popoutRoot.reveal(dayPlot);
                                                         dayOverlay.day = dayColumn;
-                                                    else if (dayOverlay.day === dayColumn)
+                                                    } else if (dayOverlay.day === dayColumn)
                                                         dayOverlay.day = null;
                                                 }
 
@@ -1722,11 +1730,11 @@ PluginComponent {
                                                     anchors.fill: parent
                                                     hoverEnabled: true
                                                     acceptedButtons: Qt.NoButton
-                                                    onEntered: dayOverlay.day = dayColumn
-                                                    onExited: {
-                                                        if (dayOverlay.day === dayColumn)
-                                                            dayOverlay.day = null;
+                                                    onEntered: {
+                                                        dayCloseTimer.stop();
+                                                        dayOverlay.day = dayColumn;
                                                     }
+                                                    onExited: dayCloseTimer.restart()
                                                 }
                                             }
 
@@ -1809,6 +1817,7 @@ PluginComponent {
                                             Keys.onSpacePressed: root.toggleFamily(familyRow.modelData.family)
                                             Keys.onReturnPressed: root.toggleFamily(familyRow.modelData.family)
                                             Keys.onEnterPressed: root.toggleFamily(familyRow.modelData.family)
+                                            onActiveFocusChanged: if (activeFocus) popoutRoot.reveal(familyHeader)
 
                                             Rectangle {
                                                 anchors.fill: parent
@@ -1891,6 +1900,15 @@ PluginComponent {
                 }
             }
 
+            Timer {
+                id: dayCloseTimer
+                interval: 250
+                onTriggered: {
+                    if (!dayOverlayHover.hovered && !(dayOverlay.day?.focusedDay ?? false))
+                        dayOverlay.day = null;
+                }
+            }
+
             StyledRect {
                 id: dayOverlay
                 property Item day: null
@@ -1912,74 +1930,84 @@ PluginComponent {
                 y: position.y
                 width: Math.min(popoutRoot.width - 2 * Theme.spacingM, 280)
                 height: Math.min(dayContents.height + 2 * Theme.spacingS, popoutRoot.height - 2 * Theme.spacingS)
-                clip: true
+
+                HoverHandler {
+                    id: dayOverlayHover
+                    onHoveredChanged: if (!hovered) dayCloseTimer.restart()
+                }
                 radius: Theme.cornerRadius
                 color: Theme.surfaceContainerHighest ?? Theme.surfaceContainerHigh
                 border.width: 1
                 border.color: Theme.outline
 
-                Column {
-                    id: dayContents
-                    x: Theme.spacingS
-                    y: Theme.spacingS
-                    width: parent.width - 2 * Theme.spacingS
-                    spacing: Theme.spacingXS
+                Flickable {
+                    anchors.fill: parent
+                    anchors.margins: Theme.spacingS
+                    contentHeight: dayContents.height
+                    boundsBehavior: Flickable.StopAtBounds
+                    clip: true
 
-                    DetailLine {
+                    Column {
+                        id: dayContents
                         width: parent.width
-                        strong: true
-                        name: {
-                            var date = new Date((dayOverlay.detail?.date || "") + "T00:00:00");
-                            return isNaN(date.getTime()) ? "" : date.toLocaleDateString(Qt.locale(), "ddd d MMM");
-                        }
-                        value: root.usageHasTokens && !dayOverlay.detail?.missing ? root.formatTokens(dayOverlay.detail?.total || 0) + " " + root.tr("tokens") : ""
-                    }
+                        spacing: Theme.spacingXS
 
-                    Repeater {
-                        model: dayOverlay.detail?.groups ?? []
-
-                        delegate: Column {
-                            id: dayGroup
-                            required property var modelData
-                            readonly property bool named: modelData.name !== ""
-                            width: dayContents.width
-                            topPadding: named ? Theme.spacingXS : 0
-                            spacing: 2
-
-                            DetailLine {
-                                visible: dayGroup.named
-                                width: parent.width
-                                strong: true
-                                showSwatch: true
-                                roundSwatch: true
-                                swatch: dayGroup.modelData.color || "transparent"
-                                name: dayGroup.modelData.name
-                                value: root.formatTokens(dayGroup.modelData.tokens)
+                        DetailLine {
+                            width: parent.width
+                            strong: true
+                            name: {
+                                var date = new Date((dayOverlay.detail?.date || "") + "T00:00:00");
+                                return isNaN(date.getTime()) ? "" : date.toLocaleDateString(Qt.locale(), "ddd d MMM");
                             }
+                            value: root.usageHasTokens && !dayOverlay.detail?.missing ? root.formatTokens(dayOverlay.detail?.total || 0) + " " + root.tr("tokens") : ""
+                        }
 
-                            Repeater {
-                                model: dayGroup.modelData.models
+                        Repeater {
+                            model: dayOverlay.detail?.groups ?? []
 
-                                delegate: DetailLine {
-                                    required property var modelData
-                                    width: dayGroup.width
-                                    indent: dayGroup.named ? Theme.spacingM : 0
-                                    showSwatch: !dayGroup.named
-                                    swatch: modelData.color
-                                    name: modelData.name
-                                    value: root.formatTokens(modelData.tokens)
+                            delegate: Column {
+                                id: dayGroup
+                                required property var modelData
+                                readonly property bool named: modelData.name !== ""
+                                width: dayContents.width
+                                topPadding: named ? Theme.spacingXS : 0
+                                spacing: 2
+
+                                DetailLine {
+                                    visible: dayGroup.named
+                                    width: parent.width
+                                    strong: true
+                                    showSwatch: true
+                                    roundSwatch: true
+                                    swatch: dayGroup.modelData.color || "transparent"
+                                    name: dayGroup.modelData.name
+                                    value: root.formatTokens(dayGroup.modelData.tokens)
+                                }
+
+                                Repeater {
+                                    model: dayGroup.modelData.models
+
+                                    delegate: DetailLine {
+                                        required property var modelData
+                                        width: dayGroup.width
+                                        indent: dayGroup.named ? Theme.spacingM : 0
+                                        showSwatch: !dayGroup.named
+                                        swatch: modelData.color
+                                        name: modelData.name
+                                        value: root.formatTokens(modelData.tokens)
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    StyledText {
-                        topPadding: Theme.spacingXS
-                        text: dayOverlay.detail?.missing ? root.tr("no data")
-                              : dayOverlay.detail ? root.formatCount(dayOverlay.detail.requests) + " " + root.tr("requests")
-                              + (dayOverlay.detail.failed > 0 ? " \u00b7 " + root.formatCount(dayOverlay.detail.failed) + " " + root.tr("failed") : "") : ""
-                        font.pixelSize: Theme.fontSizeSmall
-                        color: Theme.surfaceVariantText
+                        StyledText {
+                            topPadding: Theme.spacingXS
+                            text: dayOverlay.detail?.missing ? root.tr("no data")
+                                  : dayOverlay.detail ? root.formatCount(dayOverlay.detail.requests) + " " + root.tr("requests")
+                                  + (dayOverlay.detail.failed > 0 ? " \u00b7 " + root.formatCount(dayOverlay.detail.failed) + " " + root.tr("failed") : "") : ""
+                            font.pixelSize: Theme.fontSizeSmall
+                            color: Theme.surfaceVariantText
+                        }
                     }
                 }
             }

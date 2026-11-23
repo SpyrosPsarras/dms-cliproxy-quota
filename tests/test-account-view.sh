@@ -40,7 +40,7 @@ Object.defineProperty(context, 'viewActivity', {get() {
 }});
 assert.deepEqual(plain(block('usageStats')), [
     {label: 'Today', tokens: 60, requests: 4, missing: false},
-    {label: '7 days · 2 recorded', tokens: 110, requests: 6, missing: false},
+    {label: '7 days · 2 recorded', tokens: 110, requests: 6, missing: false, recorded: 2},
 ], 'usage stats should count only the selected account, over the days it has history');
 assert.deepEqual(plain(context.viewEntry(today)), {
     date: todayDate, requests: 3, failed: 1, tokens: {small: 20, large: 40}, missing: false,
@@ -56,16 +56,27 @@ context.selectedAccount = '';
 assert.equal(context.viewEntry(today), today);
 assert.deepEqual(plain(block('usageStats')), [
     {label: 'Today', tokens: 200, requests: 11, missing: false},
-    {label: '7 days', tokens: 330, requests: 18, missing: false},
+    {label: '7 days', tokens: 330, requests: 18, missing: false, recorded: 3},
 ], 'All keeps the provider totals, including unattributed usage');
 const activityBefore = context.activity;
 context.activity = [yesterday, {date: todayDate, requests: 0, failed: 0, tokens: {}, missing: true}];
-assert.deepEqual(plain(block('usageStats')).map(({missing, requests}) => [missing, requests]), [[true, 0], [false, 5]],
+assert.deepEqual(plain(block('usageStats')).map(({missing, requests, recorded}) => [missing, requests, recorded]), [[true, 0, undefined], [false, 5, 1]],
     'today without history is missing, not a measured zero');
 assert.equal(plain(block('usageStats'))[1].label, '7 days · 1 recorded', 'a partial week says how many days it covers');
 context.activity = [{date: todayDate, requests: 0, failed: 0, tokens: {}}];
 assert.deepEqual(plain(block('usageStats')).map(({missing}) => missing), [false, false], 'a measured zero stays zero');
 assert.equal(plain(block('usageStats'))[1].label, '7 days', 'a fully recorded week keeps its plain label');
+const noUsage = activity => {
+    context.activity = activity;
+    context.usageStats = block('usageStats');
+    return vm.runInContext(source.match(/^    readonly property bool noUsage: ([\s\S]*?)\n    readonly/m)[1], context);
+};
+const zeroDay = {date: todayDate, requests: 0, failed: 0, tokens: {}};
+const missingDay = {date: '2026-11-18', requests: 0, failed: 0, tokens: {}, missing: true};
+assert.equal(noUsage([zeroDay]), true, 'a fully recorded idle week reads as no usage');
+assert.equal(noUsage([missingDay, zeroDay]), false, 'a partly recorded idle week keeps its recorded-days summary');
+assert.equal(noUsage([missingDay]), true, 'no history at all reads as no data');
+delete context.usageStats;
 context.activity = activityBefore;
 
 runFunction('familyTokens');
@@ -243,8 +254,11 @@ test('without an account split a day is one unnamed group', () => {
 test('slivers under 2% of the scale leave the bars but never empty a day', () => {
     runFunction('visibleSegments');
     context.dayMax = 1000;
-    assert.deepEqual(plain(context.visibleSegments([{value: 900}, {value: 10}, {value: 90}])), [{value: 900}, {value: 90}]);
-    assert.deepEqual(plain(context.visibleSegments([{value: 5}, {value: 8}])), [{value: 8}], 'a tiny day keeps its largest part');
+    const kept = plain(context.visibleSegments([{value: 900, color: 'a'}, {value: 10, color: 'b'}, {value: 90, color: 'c'}]));
+    assert.deepEqual(kept.map(part => part.color), ['a', 'c']);
+    assert.ok(Math.abs(kept.reduce((sum, part) => sum + part.value, 0) - 1000) < 1e-9, 'the bar keeps the day total height');
+    assert.deepEqual(plain(context.visibleSegments([{value: 5, color: 'a'}, {value: 8, color: 'b'}])), [{value: 13, color: 'b'}],
+        'a tiny day keeps its largest part at the full day height');
     assert.deepEqual(plain(context.visibleSegments([])), []);
 });
 
