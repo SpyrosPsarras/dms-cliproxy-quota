@@ -177,9 +177,16 @@ PluginComponent {
 
     property var quota: null
     property var lastGood: null
-    onScriptEnvironmentChanged: {
+    // pluginData is replaced on every settings save; only a different source counts.
+    readonly property string sourceKey: JSON.stringify(scriptEnvironment)
+    property bool sourceChanged: false
+    onSourceKeyChanged: {
+        quota = null;
         lastGood = null;
-        if (!quotaProcess.running)
+        forceFetch = true;
+        if (quotaProcess.running)
+            sourceChanged = true;
+        else
             quotaProcess.running = true;
     }
     readonly property var shown: quota && quota.status === "ok" ? quota : lastGood
@@ -322,6 +329,15 @@ PluginComponent {
             for (var m in t)
                 sums[m] = (sums[m] || 0) + t[m];
         }
+        var accountOnly = {};
+        activity.forEach(entry => Object.values(entry.accounts || {}).forEach(account => {
+            var own = account.tokens || {};
+            for (var id in own) {
+                if (!(id in sums))
+                    accountOnly[id] = (accountOnly[id] || 0) + own[id];
+            }
+        }));
+        Object.assign(sums, accountOnly);
         return Object.keys(sums).filter(m => sums[m] > 0)
             .map(m => ({ model: m, total: sums[m] }))
             .sort((a, b) => b.total - a.total);
@@ -487,11 +503,14 @@ PluginComponent {
     function segmentHeights(values, max, plot, gap) {
         if (values.length === 0 || max <= 0)
             return [];
-        var room = plot - gap * (values.length - 1);
+        var room = Math.max(0, plot - gap * (values.length - 1));
         var heights = values.map(value => Math.max(2, room * value / max));
         var over = heights.reduce((sum, h) => sum + h, 0) - room;
         var shrinkable = heights.reduce((sum, h) => sum + h - 2, 0);
-        return over > 0 && shrinkable > 0 ? heights.map(h => h - (h - 2) * Math.min(1, over / shrinkable)) : heights;
+        if (over > 0 && shrinkable > 0)
+            heights = heights.map(h => h - (h - 2) * Math.min(1, over / shrinkable));
+        var total = heights.reduce((sum, h) => sum + h, 0);
+        return total > room ? heights.map(h => h * room / total) : heights;
     }
 
     function dayOverlayPosition(left, right, rowBottom, width, height, boundsWidth, boundsHeight, gap, inset) {
@@ -675,7 +694,7 @@ PluginComponent {
         stdout: SplitParser {
             onRead: data => {
                 var line = data.trim();
-                if (line === "")
+                if (line === "" || root.sourceChanged)
                     return;
                 try {
                     root.quota = JSON.parse(line);
@@ -694,6 +713,11 @@ PluginComponent {
         }
 
         onExited: (exitCode, exitStatus) => {
+            if (root.sourceChanged) {
+                root.sourceChanged = false;
+                Qt.callLater(() => quotaProcess.running = true);
+                return;
+            }
             root.forceFetch = false;
             if (exitCode !== 0 || !root.receivedThisRun)
                 root.quota = ({ status: "script-error", error: "fetch failed", stale: true, providers: [] });
@@ -1181,6 +1205,23 @@ PluginComponent {
                                     id: accountHeader
                                     width: parent.width
                                     height: 44
+                                    activeFocusOnTab: true
+                                    Accessible.role: Accessible.Button
+                                    Accessible.name: accountCard.modelData.label || accountCard.modelData.account
+                                    Accessible.onPressAction: root.toggleAccount(accountCard.expandKey, accountCard.expanded)
+                                    Keys.onSpacePressed: root.toggleAccount(accountCard.expandKey, accountCard.expanded)
+                                    Keys.onReturnPressed: root.toggleAccount(accountCard.expandKey, accountCard.expanded)
+                                    Keys.onEnterPressed: root.toggleAccount(accountCard.expandKey, accountCard.expanded)
+
+                                    Rectangle {
+                                        anchors.fill: parent
+                                        anchors.margins: 2
+                                        radius: Theme.cornerRadius
+                                        visible: accountHeader.activeFocus
+                                        color: "transparent"
+                                        border.width: 2
+                                        border.color: Theme.primary
+                                    }
 
                                     MouseArea {
                                         anchors.fill: parent
@@ -1496,19 +1537,24 @@ PluginComponent {
                                                     color: Theme.surfaceVariant
                                                 }
 
-                                                Column {
-                                                    anchors.bottom: parent.bottom
-                                                    anchors.horizontalCenter: parent.horizontalCenter
-                                                    spacing: 1
+                                                Item {
+                                                    anchors.fill: parent
+                                                    clip: true
 
-                                                    Repeater {
-                                                        model: dayColumn.bars
+                                                    Column {
+                                                        anchors.bottom: parent.bottom
+                                                        anchors.horizontalCenter: parent.horizontalCenter
+                                                        spacing: 1
 
-                                                        delegate: Rectangle {
-                                                            required property var modelData
-                                                            width: dayColumn.barWidth
-                                                            height: modelData.h
-                                                            color: modelData.color
+                                                        Repeater {
+                                                            model: dayColumn.bars
+
+                                                            delegate: Rectangle {
+                                                                required property var modelData
+                                                                width: dayColumn.barWidth
+                                                                height: modelData.h
+                                                                color: modelData.color
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -1613,7 +1659,7 @@ PluginComponent {
                                             color: Theme.surfaceVariant
 
                                             Rectangle {
-                                                width: parent.width * familyRow.modelData.viewTotal / root.modelFamilies[0].total
+                                                width: parent.width * Math.min(1, familyRow.modelData.viewTotal / root.modelFamilies[0].total)
                                                 height: parent.height
                                                 radius: parent.radius
                                                 color: familyRow.modelData.color
@@ -1700,7 +1746,7 @@ PluginComponent {
                             var date = new Date((dayOverlay.detail?.date || "") + "T00:00:00");
                             return isNaN(date.getTime()) ? "" : date.toLocaleDateString(Qt.locale(), "ddd d MMM");
                         }
-                        value: root.usageHasTokens ? root.formatTokens(dayOverlay.detail?.total || 0) + " " + root.tr("tokens") : ""
+                        value: root.usageHasTokens && !dayOverlay.detail?.missing ? root.formatTokens(dayOverlay.detail?.total || 0) + " " + root.tr("tokens") : ""
                     }
 
                     Repeater {

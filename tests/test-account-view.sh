@@ -224,6 +224,19 @@ test('bar heights stay proportional, keep tiny parts visible and fit the plot wi
     assert.ok(Math.abs(tall[0] + tall[1] + 1 - 80) < 1e-9, 'parts and the gap fill the plot exactly');
     const many = context.segmentHeights([90, 4, 3, 3], 100, 80, 1);
     assert.ok(many.every(h => h >= 2) && many.reduce((a, b) => a + b, 0) + 3 <= 80 + 1e-9);
+    const crowded = context.segmentHeights(Array(28).fill(1), 28, 80, 1);
+    assert.ok(crowded.reduce((a, b) => a + b, 0) + 27 <= 80 + 1e-9, '28 parts and their gaps still fit the plot');
+});
+
+test('a model only seen in account counts still gets a Models row', () => {
+    const activity = context.activity;
+    context.activity = [{date: todayDate, requests: 1, failed: 0, tokens: {x: 100}, accounts: {
+        [first]: {tokens: {x: 60, w: 7}}, [second]: {tokens: {w: 3}}}}];
+    try {
+        assert.deepEqual(plain(block('modelTotals')), [{model: 'x', total: 100}, {model: 'w', total: 10}]);
+    } finally {
+        context.activity = activity;
+    }
 });
 
 test('the bold quota row is the lowest group, only when there is a choice', () => {
