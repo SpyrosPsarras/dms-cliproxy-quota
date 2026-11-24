@@ -1011,10 +1011,6 @@ PluginComponent {
                 }
             }
 
-            DankTooltipV2 {
-                id: popoutTip
-            }
-
             Item {
                 id: openFocus
                 focus: true
@@ -1176,11 +1172,8 @@ PluginComponent {
 
                             MouseArea {
                                 anchors.fill: parent
-                                hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: root.focusPage(providerTab.index)
-                                onEntered: popoutTip.show(providerTab.tip, providerTab, 0, 0, "bottom")
-                                onExited: popoutTip.hide()
                             }
 
                             Rectangle {
