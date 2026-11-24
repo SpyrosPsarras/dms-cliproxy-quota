@@ -42,8 +42,9 @@ freedesktop Secret Service vault.
   bar.
 - **Popout** — a status line (loading, refreshing, updated, stale, or the
   fetch error) and a refresh button, then one
-  tab per provider with its icon, name and remaining percentage, wrapping to
-  a second row when they do not fit; click a tab or press ←/→.
+  tab per provider with its icon and remaining percentage (the selected tab
+  adds the provider's name), wrapping to a second row when they do not fit;
+  click a tab or press ←/→.
   Each provider page reads top to bottom:
   - **Quota card** — titled with the account these numbers come from and
     its last request, with the provider's taskbar-warnings bell; one row per

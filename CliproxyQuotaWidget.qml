@@ -1150,6 +1150,7 @@ PluginComponent {
                                 }
 
                                 StyledText {
+                                    visible: providerTab.focused
                                     text: providerTab.modelData.provider
                                     width: Math.min(implicitWidth, 150)
                                     elide: Text.ElideRight
