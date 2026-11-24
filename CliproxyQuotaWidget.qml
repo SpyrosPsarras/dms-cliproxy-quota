@@ -144,7 +144,20 @@ PluginComponent {
         property bool roundSwatch: false
         property bool strong: false
         property real indent: 0
+        property bool striped: false
+        property real bandInset: 6
+        property real bandPad: 3
         height: lineName.implicitHeight
+
+        Rectangle {
+            visible: line.striped
+            x: -line.bandInset
+            y: -line.bandPad
+            width: line.width + 2 * line.bandInset
+            height: line.height + 2 * line.bandPad
+            radius: 5
+            color: Theme.withAlpha(Theme.surfaceText, 0.06)
+        }
 
         Rectangle {
             visible: line.showSwatch
@@ -998,10 +1011,6 @@ PluginComponent {
                 }
             }
 
-            DankTooltipV2 {
-                id: popoutTip
-            }
-
             Item {
                 id: openFocus
                 focus: true
@@ -1141,6 +1150,7 @@ PluginComponent {
                                 }
 
                                 StyledText {
+                                    visible: providerTab.focused
                                     text: providerTab.modelData.provider
                                     width: Math.min(implicitWidth, 150)
                                     elide: Text.ElideRight
@@ -1163,11 +1173,8 @@ PluginComponent {
 
                             MouseArea {
                                 anchors.fill: parent
-                                hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: root.focusPage(providerTab.index)
-                                onEntered: popoutTip.show(providerTab.tip, providerTab, 0, 0, "bottom")
-                                onExited: popoutTip.hide()
                             }
 
                             Rectangle {
@@ -1705,7 +1712,9 @@ PluginComponent {
 
                                     delegate: DetailLine {
                                         required property var modelData
+                                        required property int index
                                         width: activityContent.width
+                                        striped: index % 2 === 1
                                         name: modelData.label
                                         value: modelData.missing ? root.tr("no data")
                                                : (root.usageHasTokens ? root.formatTokens(modelData.tokens) + " " + root.tr("tokens") + " \u00b7 " : "")
@@ -1897,7 +1906,7 @@ PluginComponent {
                                     id: familyRows
                                     model: root.visibleFamilies.length
 
-                                    delegate: Column {
+                                    delegate: Item {
                                         id: familyRow
                                         required property int index
                                         readonly property string focusKey: "family:" + modelData.family
@@ -1907,86 +1916,102 @@ PluginComponent {
                                         readonly property bool multi: modelData.versions.length > 1
                                         readonly property bool expanded: multi && root.expandedFamilies[modelData.family] === true
                                         width: modelsContent.width
-                                        spacing: 4
+                                        height: familyBody.height
 
-                                        Item {
-                                            id: familyHeader
-                                            readonly property bool rowHeader: true
-                                            width: parent.width
-                                            height: familyLine.height + 4
-                                            activeFocusOnTab: familyRow.multi
-                                            Accessible.role: Accessible.Button
-                                            Accessible.name: familyLine.name
-                                            Keys.onSpacePressed: root.toggleFamily(familyRow.modelData.family)
-                                            Keys.onReturnPressed: root.toggleFamily(familyRow.modelData.family)
-                                            Keys.onEnterPressed: root.toggleFamily(familyRow.modelData.family)
-                                            onActiveFocusChanged: {
-                                                if (activeFocus) {
-                                                    popoutRoot.reveal(familyHeader);
-                                                    root.focusKey = familyRow.focusKey;
-                                                }
-                                            }
-
-                                            Rectangle {
-                                                anchors.fill: parent
-                                                anchors.margins: -2
-                                                radius: 4
-                                                visible: familyHeader.activeFocus
-                                                color: "transparent"
-                                                border.width: 2
-                                                border.color: Theme.primary
-                                            }
-
-                                            DetailLine {
-                                                id: familyLine
-                                                anchors.left: parent.left
-                                                anchors.right: familyChevron.left
-                                                anchors.verticalCenter: parent.verticalCenter
-                                                name: familyRow.multi ? familyRow.modelData.family : familyRow.modelData.versions[0].name
-                                                value: root.formatTokens(familyRow.modelData.viewTotal)
-                                                strong: true
-                                                showSwatch: !root.showAccountSplit
-                                                swatch: familyRow.modelData.color
-                                            }
-
-                                            DankIcon {
-                                                id: familyChevron
-                                                anchors.right: parent.right
-                                                anchors.verticalCenter: parent.verticalCenter
-                                                opacity: familyRow.multi ? 1 : 0
-                                                name: familyRow.expanded ? "expand_less" : "expand_more"
-                                                size: 16
-                                                color: Theme.surfaceVariantText
-                                            }
-
-                                            MouseArea {
-                                                anchors.fill: parent
-                                                anchors.margins: -2
-                                                enabled: familyRow.multi
-                                                cursorShape: Qt.PointingHandCursor
-                                                onClicked: root.toggleFamily(familyRow.modelData.family)
-                                            }
+                                        Rectangle {
+                                            visible: familyRow.index % 2 === 1
+                                            x: -6
+                                            y: -3
+                                            width: parent.width + 12
+                                            height: parent.height + 6
+                                            radius: 5
+                                            color: Theme.withAlpha(Theme.surfaceText, 0.06)
                                         }
 
                                         Column {
-                                            visible: familyRow.expanded
+                                            id: familyBody
                                             width: parent.width
-                                            topPadding: 2
                                             spacing: 4
 
-                                            Repeater {
-                                                model: familyRow.expanded
-                                                       ? familyRow.modelData.versions
-                                                             .map(version => ({ name: version.name, total: root.familyViewTotal(version) }))
-                                                             .filter(version => version.total > 0)
-                                                             .sort((a, b) => b.total - a.total) : []
+                                            Item {
+                                                id: familyHeader
+                                                readonly property bool rowHeader: true
+                                                width: parent.width
+                                                height: familyLine.height + 4
+                                                activeFocusOnTab: familyRow.multi
+                                                Accessible.role: Accessible.Button
+                                                Accessible.name: familyLine.name
+                                                Keys.onSpacePressed: root.toggleFamily(familyRow.modelData.family)
+                                                Keys.onReturnPressed: root.toggleFamily(familyRow.modelData.family)
+                                                Keys.onEnterPressed: root.toggleFamily(familyRow.modelData.family)
+                                                onActiveFocusChanged: {
+                                                    if (activeFocus) {
+                                                        popoutRoot.reveal(familyHeader);
+                                                        root.focusKey = familyRow.focusKey;
+                                                    }
+                                                }
 
-                                                delegate: DetailLine {
-                                                    required property var modelData
-                                                    width: modelsContent.width - 16
-                                                    indent: root.showAccountSplit ? Theme.spacingM : Theme.spacingM + 8 + Theme.spacingXS
-                                                    name: modelData.name
-                                                    value: root.formatTokens(modelData.total)
+                                                Rectangle {
+                                                    anchors.fill: parent
+                                                    anchors.margins: -2
+                                                    radius: 4
+                                                    visible: familyHeader.activeFocus
+                                                    color: "transparent"
+                                                    border.width: 2
+                                                    border.color: Theme.primary
+                                                }
+
+                                                DetailLine {
+                                                    id: familyLine
+                                                    anchors.left: parent.left
+                                                    anchors.right: familyChevron.left
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    name: familyRow.multi ? familyRow.modelData.family : familyRow.modelData.versions[0].name
+                                                    value: root.formatTokens(familyRow.modelData.viewTotal)
+                                                    strong: true
+                                                    showSwatch: !root.showAccountSplit
+                                                    swatch: familyRow.modelData.color
+                                                }
+
+                                                DankIcon {
+                                                    id: familyChevron
+                                                    anchors.right: parent.right
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    opacity: familyRow.multi ? 1 : 0
+                                                    name: familyRow.expanded ? "expand_less" : "expand_more"
+                                                    size: 16
+                                                    color: Theme.surfaceVariantText
+                                                }
+
+                                                MouseArea {
+                                                    anchors.fill: parent
+                                                    anchors.margins: -2
+                                                    enabled: familyRow.multi
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: root.toggleFamily(familyRow.modelData.family)
+                                                }
+                                            }
+
+                                            Column {
+                                                visible: familyRow.expanded
+                                                width: parent.width
+                                                topPadding: 2
+                                                spacing: 4
+
+                                                Repeater {
+                                                    model: familyRow.expanded
+                                                           ? familyRow.modelData.versions
+                                                                 .map(version => ({ name: version.name, total: root.familyViewTotal(version) }))
+                                                                 .filter(version => version.total > 0)
+                                                                 .sort((a, b) => b.total - a.total) : []
+
+                                                    delegate: DetailLine {
+                                                        required property var modelData
+                                                        width: modelsContent.width - 16
+                                                        indent: root.showAccountSplit ? Theme.spacingM : Theme.spacingM + 8 + Theme.spacingXS
+                                                        name: modelData.name
+                                                        value: root.formatTokens(modelData.total)
+                                                    }
                                                 }
                                             }
                                         }
@@ -2061,14 +2086,18 @@ PluginComponent {
                 Flickable {
                     id: dayScroll
                     anchors.fill: parent
-                    anchors.margins: Theme.spacingS
+                    anchors.topMargin: Theme.spacingS
+                    anchors.bottomMargin: Theme.spacingS
+                    anchors.leftMargin: Theme.spacingXS
+                    anchors.rightMargin: Theme.spacingXS
                     contentHeight: dayContents.height
                     boundsBehavior: Flickable.StopAtBounds
                     clip: true
 
                     Column {
                         id: dayContents
-                        width: parent.width
+                        x: Theme.spacingXS
+                        width: parent.width - 2 * Theme.spacingXS
                         spacing: Theme.spacingXS
 
                         DetailLine {
@@ -2087,7 +2116,10 @@ PluginComponent {
                             delegate: Column {
                                 id: dayGroup
                                 required property var modelData
+                                required property int index
                                 readonly property bool named: modelData.name !== ""
+                                readonly property int rowOffset: 1 + (dayOverlay.detail?.groups ?? []).slice(0, index)
+                                    .reduce((rows, group) => rows + (group.name !== "" ? 1 : 0) + group.models.length, 0)
                                 width: dayContents.width
                                 topPadding: named ? Theme.spacingXS : 0
                                 spacing: 2
@@ -2099,6 +2131,9 @@ PluginComponent {
                                     showSwatch: true
                                     roundSwatch: true
                                     swatch: dayGroup.modelData.color || "transparent"
+                                    striped: dayGroup.rowOffset % 2 === 1
+                                    bandInset: Theme.spacingXS
+                                    bandPad: 1
                                     name: dayGroup.modelData.name
                                     value: root.formatTokens(dayGroup.modelData.tokens)
                                 }
@@ -2108,7 +2143,11 @@ PluginComponent {
 
                                     delegate: DetailLine {
                                         required property var modelData
+                                        required property int index
                                         width: dayGroup.width
+                                        striped: (dayGroup.rowOffset + (dayGroup.named ? 1 : 0) + index) % 2 === 1
+                                        bandInset: Theme.spacingXS
+                                        bandPad: 1
                                         indent: dayGroup.named ? Theme.spacingM : 0
                                         showSwatch: !dayGroup.named
                                         swatch: modelData.color

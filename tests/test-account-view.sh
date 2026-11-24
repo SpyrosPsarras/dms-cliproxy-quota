@@ -361,6 +361,26 @@ test('when hover ends, the day detail returns to the keyboard-focused day', () =
     assert.equal(ctx.dayOverlay.day, days[0], 'the detail stays while the pointer is on it');
 });
 
+test('day detail rows alternate stripes across account and model rows', () => {
+    const offset = source.match(/readonly property int rowOffset: ([\s\S]*?\.reduce\([^\n]*\))/)[1];
+    const modelStripe = source.match(/striped: (\(dayGroup\.rowOffset[^\n]*)/)[1];
+    const headerStripe = source.match(/striped: (dayGroup\.rowOffset % 2[^\n]*)/)[1];
+    const stripes = groups => {
+        const striped = [];
+        groups.forEach((group, index) => {
+            const rowOffset = vm.runInNewContext(offset, {dayOverlay: {detail: {groups}}, index});
+            const named = group.name !== '';
+            if (named)
+                striped.push(vm.runInNewContext(headerStripe, {dayGroup: {rowOffset}}));
+            group.models.forEach((_, i) => striped.push(vm.runInNewContext(modelStripe, {dayGroup: {rowOffset, named}, index: i})));
+        });
+        return striped;
+    };
+    assert.deepEqual(stripes([{name: 'a', models: [1, 2]}, {name: 'b', models: [1]}]), [true, false, true, false, true],
+        'the date row is plain, then every other row is striped');
+    assert.deepEqual(stripes([{name: '', models: [1, 2, 3]}]), [true, false, true], 'a day without an account split alternates its model rows');
+});
+
 test('the bold quota row is the lowest group, only when there is a choice', () => {
     const provider = context.pillProvider;
     const limiting = groups => { context.pillProvider = {aggregateGroups: groups}; return block('limitingGroup'); };
