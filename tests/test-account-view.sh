@@ -361,6 +361,21 @@ test('when hover ends, the day detail returns to the keyboard-focused day', () =
     assert.equal(ctx.dayOverlay.day, days[0], 'the detail stays while the pointer is on it');
 });
 
+test('day detail rows alternate stripes across account and model rows', () => {
+    const offset = source.match(/readonly property int rowOffset: ([\s\S]*?\.reduce\([^\n]*\))/)[1];
+    const modelStripe = source.match(/striped: (\(dayGroup\.rowOffset[^\n]*)/)[1];
+    const groups = [{name: 'a', models: [1, 2]}, {name: 'b', models: [1]}];
+    const striped = [];
+    groups.forEach((group, index) => {
+        const ctx = {dayOverlay: {detail: {groups}}, index};
+        const rowOffset = vm.runInNewContext(offset, ctx);
+        striped.push(rowOffset % 2 === 1);
+        group.models.forEach((_, i) => striped.push(vm.runInNewContext(modelStripe,
+            {dayGroup: {rowOffset, named: true}, index: i})));
+    });
+    assert.deepEqual(striped, [true, false, true, false, true], 'the date row is plain, then every other row is striped');
+});
+
 test('the bold quota row is the lowest group, only when there is a choice', () => {
     const provider = context.pillProvider;
     const limiting = groups => { context.pillProvider = {aggregateGroups: groups}; return block('limitingGroup'); };
