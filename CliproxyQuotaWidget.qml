@@ -1755,6 +1755,7 @@ PluginComponent {
                                             readonly property bool isToday: modelData.date === root.todayDate
                                             readonly property bool missing: root.viewEntry(modelData).missing === true
                                             readonly property bool focusedDay: dayPlot.activeFocus
+                                            readonly property bool hoveredDay: dayMouse.containsMouse
                                             readonly property real barWidth: Math.min(28, width - Theme.spacingS)
                                             width: barsRow.width / root.activity.length
                                             spacing: 4
@@ -1833,6 +1834,7 @@ PluginComponent {
                                                 }
 
                                                 MouseArea {
+                                                    id: dayMouse
                                                     anchors.fill: parent
                                                     hoverEnabled: true
                                                     acceptedButtons: Qt.NoButton
@@ -2039,12 +2041,16 @@ PluginComponent {
                 onTriggered: {
                     if (dayOverlayHover.hovered)
                         return;
+                    var hovered = null;
                     var focused = null;
                     for (var i = 0; i < dayRepeater.count; i++) {
-                        if (dayRepeater.itemAt(i)?.focusedDay)
-                            focused = dayRepeater.itemAt(i);
+                        var day = dayRepeater.itemAt(i);
+                        if (day?.hoveredDay)
+                            hovered = day;
+                        else if (day?.focusedDay)
+                            focused = day;
                     }
-                    dayOverlay.day = focused;
+                    dayOverlay.day = hovered ?? focused;
                 }
             }
 

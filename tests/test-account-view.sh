@@ -359,6 +359,13 @@ test('when hover ends, the day detail returns to the keyboard-focused day', () =
     ctx.dayOverlay.day = days[0];
     vm.runInContext(`(function() {${body}})()`, ctx);
     assert.equal(ctx.dayOverlay.day, days[0], 'the detail stays while the pointer is on it');
+    ctx.dayOverlayHover.hovered = false;
+    days[1].focusedDay = true;
+    days[2].hoveredDay = true;
+    ctx.dayOverlay.day = days[2];
+    vm.runInContext(`(function() {${body}})()`, ctx);
+    assert.equal(ctx.dayOverlay.day, days[2],
+        'moving from one day to the next: the old day leaves after the new one enters, and the detail stays on the hovered day');
 });
 
 test('day detail rows alternate stripes across account and model rows', () => {
